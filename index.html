@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Киев 3D — прогулка 1:1 (OpenStreetMap)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Киев 3D">
+<meta name="theme-color" content="#0b1118">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; background: #9ab; font-family: system-ui, "Segoe UI", Roboto, sans-serif; color: #fff; }
+  canvas#view { display: block; width: 100%; height: 100%; }
+  .panel { position: fixed; background: rgba(12,18,26,.62); border-radius: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.45; backdrop-filter: blur(3px); pointer-events: none; }
+  #doorhint { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); display: none; padding: 7px 16px; border-radius: 20px; background: rgba(20,60,40,.78); color: #fff; font: 600 16px system-ui, sans-serif; z-index: 6; pointer-events: none; white-space: nowrap; border: 1px solid rgba(255,255,255,.4); }
+  body.touch #doorhint { top: calc(54px + var(--sat)); font-size: 15px; }
+  #hud { left: 12px; top: 12px; min-width: 210px; font-variant-numeric: tabular-nums; }
+  #help { left: 12px; bottom: 12px; max-width: 360px; }
+  #help b { color: #ffd966; font-weight: 600; }
+  #mini { right: 12px; bottom: 12px; padding: 4px; }
+  #minicv { display: block; width: 200px; height: 200px; border-radius: 6px; }
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; background: rgba(8,14,22,.78); text-align: center; z-index: 5; cursor: pointer; }
+  #overlay h1 { margin: 0 0 6px; font-size: 34px; font-weight: 600; }
+  #overlay p { margin: 4px; opacity: .85; max-width: 640px; }
+  #bar { width: 320px; height: 6px; background: #345; border-radius: 3px; margin: 14px; overflow: hidden; }
+  #bar i { display: block; height: 100%; width: 0; background: #ffd966; transition: width .2s; }
+  #big { position: fixed; inset: 0; z-index: 4; background: rgba(8,14,22,.9); display: none; }
+  #bigcv { width: 100%; height: 100%; cursor: crosshair; }
+  #bigtip { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6; display: none; }
+  #uw { position: fixed; inset: 0; background: rgba(20,70,90,.55); display: none; pointer-events: none; }
+  #cross { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 2px; background: rgba(255,255,255,.7); pointer-events: none; }
+
+  html, body { position: fixed; width: 100%; }
+  :root { --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); }
+  canvas#view { position: fixed; inset: 0; touch-action: none; }
+  /* touch UI */
+  body.touch #help { display: none; }
+  body.touch #hud { left: calc(10px + var(--sal)); top: calc(8px + var(--sat)); font-size: 11px; padding: 5px 8px; min-width: 0; }
+  body.touch #mini { right: calc(10px + var(--sar)); top: calc(8px + var(--sat)); bottom: auto; }
+  body.touch #minicv { width: 110px; height: 110px; }
+  #tui { display: none; position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+  body.touch #tui { display: block; }
+  #joy { position: absolute; left: 0; bottom: 0; width: 46%; height: 62%; pointer-events: auto; touch-action: none; }
+  #joybase { position: fixed; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 2px solid rgba(255,255,255,.55); background: rgba(255,255,255,.12); display: none; pointer-events: none; }
+  #joyknob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.55); }
+  #joyhint { position: absolute; left: calc(26px + var(--sal)); bottom: calc(40px + var(--sab)); width: 110px; height: 110px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.35); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.6); font-size: 11px; pointer-events: none; }
+  #look { position: absolute; right: 0; top: 0; width: 54%; height: 100%; pointer-events: auto; touch-action: none; }
+  .tb { position: absolute; pointer-events: auto; touch-action: none; width: 58px; height: 58px; border-radius: 50%; background: rgba(12,18,26,.55); border: 2px solid rgba(255,255,255,.5); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.1; -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+  .tb.on { background: rgba(255,217,102,.75); color: #111; border-color: #fff; }
+  .tb:active { background: rgba(255,255,255,.5); }
+  #bJump { right: calc(24px + var(--sar)); bottom: calc(40px + var(--sab)); width: 74px; height: 74px; font-size: 14px; }
+  #bRun { right: calc(112px + var(--sar)); bottom: calc(34px + var(--sab)); }
+  #bFly { right: calc(24px + var(--sar)); bottom: calc(128px + var(--sab)); }
+  #bDown { right: calc(94px + var(--sar)); bottom: calc(118px + var(--sab)); display: none; }
+  #bMap { right: calc(24px + var(--sar)); bottom: calc(196px + var(--sab)); }
+  #bMore { right: calc(92px + var(--sar)); bottom: calc(196px + var(--sab)); width: 46px; height: 46px; font-size: 11px; }
+  #bShade { right: calc(150px + var(--sar)); bottom: calc(196px + var(--sab)); width: 46px; height: 46px; font-size: 11px; }
+  #bClose { display: none; position: fixed; right: calc(14px + var(--sar)); top: calc(14px + var(--sat)); z-index: 8; pointer-events: auto; }
+  #rot { display: none; position: fixed; inset: 0; z-index: 20; background: #0b1118; align-items: center; justify-content: center; font-size: 15px; }
+  #bigtip { top: calc(10px + var(--sat)); }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="uw"></div><div id="cross"></div>
+<div id="tui">
+  <div id="joyhint">ходьба</div>
+  <div id="joy"><div id="joybase"><div id="joyknob"></div></div></div>
+  <div id="look"></div>
+  <div class="tb" id="bJump">прыжок</div>
+  <div class="tb" id="bRun">бег</div>
+  <div class="tb" id="bFly">полёт</div>
+  <div class="tb" id="bDown">вниз</div>
+  <div class="tb" id="bMap">карта</div>
+  <div class="tb" id="bMore">места</div>
+  <div class="tb" id="bShade">тени</div>
+</div>
+<div class="tb" id="bClose">✕</div>
+<div id="doorhint"></div>
+<div id="hud" class="panel"></div>
+<div id="help" class="panel"></div>
+<div id="mini" class="panel"><canvas id="minicv" width="200" height="200"></canvas></div>
+<div id="bigtip" class="panel">Карта: клик — телепорт · M / Esc — закрыть</div>
+<div id="big"><canvas id="bigcv"></canvas></div>
+<div id="overlay">
+  <h1>Киев 3D · прогулка 1:1</h1>
+  <p id="msg">Загрузка…</p>
+  <div id="bar"><i></i></div>
+  <p id="go" style="display:none"><b id="gotxt">Кликните, чтобы начать</b><br>Старт — Майдан Незалежности. Данные: © участники OpenStreetMap (ODbL). Здания — экструзия контуров, текстуры процедурные.</p>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
