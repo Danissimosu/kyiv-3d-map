@@ -38,7 +38,7 @@ const IS_TOUCH = (qs.get('touch') === '1') || (qs.get('touch') !== '0' && (('ont
 if (IS_TOUCH) document.body.classList.add('touch');
 const MOB = IS_TOUCH;   // mobile performance profile
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
-document.addEventListener('touchmove', e => { if (IS_TOUCH && e.target.closest && !e.target.closest('#big, #places')) e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', e => { if (IS_TOUCH && e.target.closest && !e.target.closest('#big, .gp')) e.preventDefault(); }, { passive: false });
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 async function main() {

@@ -3,8 +3,8 @@ export const $ = id => document.getElementById(id);
 export const UI = { modal: 0, onModal: null, IS_TOUCH: false };
 const style = document.createElement('style');
 style.textContent = `
-.gp{position:fixed;inset:0;z-index:12;background:rgba(8,14,22,.94);color:#fff;font:15px/1.35 -apple-system,system-ui,sans-serif;display:none;overflow:auto;-webkit-overflow-scrolling:touch;padding:calc(14px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));touch-action:pan-y}
-.gp h2{margin:0 0 8px;font-size:19px;font-weight:650;display:flex;align-items:center;justify-content:space-between}
+.gp{position:fixed;left:0;right:0;top:0;height:100vh;height:100dvh;box-sizing:border-box;z-index:12;background:rgba(8,14,22,.94);color:#fff;font:15px/1.35 -apple-system,system-ui,sans-serif;display:none;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding:0 14px calc(28px + env(safe-area-inset-bottom))}
+.gp h2{position:sticky;top:0;z-index:3;margin:0 -14px 8px;padding:calc(10px + env(safe-area-inset-top)) 14px 8px;background:rgba(8,14,22,.97);font-size:19px;font-weight:650;display:flex;align-items:center;justify-content:space-between}
 .gp .x{font-size:20px;padding:4px 12px;background:rgba(255,255,255,.14);border-radius:10px}
 .gp .row{display:flex;align-items:center;gap:8px;padding:10px;margin:5px 0;background:rgba(255,255,255,.1);border-radius:10px}
 .gp .row .t{flex:1;min-width:0}.gp .row .t b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gp .row .t small{opacity:.7}
@@ -23,7 +23,12 @@ body.touch #toasts{top:calc(36px + env(safe-area-inset-top))}body.touch #toasts 
 document.head.appendChild(style);
 export function el(tag, cls, html, parent) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; if (parent) parent.appendChild(e); return e; }
 // tap that works for mouse and touch without double firing
-export function tap(e, fn) { let t0 = 0; e.addEventListener('touchend', ev => { ev.preventDefault(); t0 = performance.now(); fn(ev); }, { passive: false }); e.addEventListener('click', ev => { if (performance.now() - t0 < 500) return; fn(ev); }); return e; }
+export function tap(e, fn) {   // tap that works for mouse and touch without double firing; a swipe that starts on the element (list scroll) is NOT a tap
+  let t0 = 0, sx = 0, sy = 0, moved = false;
+  e.addEventListener('touchstart', ev => { const t = ev.changedTouches[0]; sx = t.clientX; sy = t.clientY; moved = false; }, { passive: true });
+  e.addEventListener('touchmove', ev => { const t = ev.changedTouches[0]; if (Math.abs(t.clientX - sx) + Math.abs(t.clientY - sy) > 10) moved = true; }, { passive: true });
+  e.addEventListener('touchend', ev => { if (moved) { t0 = performance.now(); return; } ev.preventDefault(); t0 = performance.now(); fn(ev); }, { passive: false });
+  e.addEventListener('click', ev => { if (performance.now() - t0 < 500) return; fn(ev); }); return e; }
 let tbox = null;
 export function toast(msg, ms = 2400) {
   if (!tbox) tbox = el('div', '', '', document.body), tbox.id = 'toasts';
