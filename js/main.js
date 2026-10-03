@@ -9,10 +9,18 @@ const KX = Math.PI / 180 * R * Math.cos(LAT0 * Math.PI / 180), KY = Math.PI / 18
 const ll2xz = (lat, lon) => [(lon - LON0) * KX, -(lat - LAT0) * KY];
 const xz2ll = (x, z) => [LAT0 - z / KY, LON0 + x / KX];
 
+// start / respawn point: square in front of the main entrance of Kyiv-Pasazhyrskyi central railway station (50.4411N 30.4891E), facing the building
+const START = { x: -2363.5, z: 1036.3, yaw: 131 };   // yaw in degrees, 0 = north
+const lmXZ = l => l[3] !== undefined ? [l[3], l[4]] : ll2xz(l[1], l[2]);
 const LANDMARKS = [
+  ['Ж/д вокзал Киев-Пассажирский (старт)', 50.4411, 30.4891, START.x, START.z],
   ['Майдан Незалежности', 50.4501, 30.5234], ['Софийский собор', 50.4529, 30.5144], ['Золотые ворота', 50.4489, 30.5139],
   ['Михайловский Златоверхий', 50.4547, 30.5189], ['Мариинский дворец', 50.4474, 30.5365], ['Владимирская горка', 50.4573, 30.5283],
   ['Андреевский спуск (верх)', 50.4590, 30.5170], ['Киево-Печерская лавра', 50.4347, 30.5576], ['Бессарабка', 50.4440, 30.5222],
+  // районы города (центры жилых массивов)
+  ['Подол (Контрактовая пл.)', 50.4659, 30.5161], ['Оболонь', 50.5010, 30.4980], ['Троещина', 50.5160, 30.6020], ['Дарница', 50.4325, 30.6330],
+  ['Позняки', 50.3975, 30.6340], ['Левобережная', 50.4520, 30.5980], ['Святошино', 50.4540, 30.3680], ['Борщаговка', 50.4310, 30.3750],
+  ['Голосеево (ВДНХ)', 50.3790, 30.4780], ['Теремки', 50.3560, 30.4650], ['Лесной массив', 50.4950, 30.6450], ['Пуща-Водица', 50.5330, 30.3600],
 ];
 
 const IS_TOUCH = (qs.get('touch') === '1') || (qs.get('touch') !== '0' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0) && matchMedia('(pointer: coarse)').matches);
@@ -23,7 +31,8 @@ document.addEventListener('touchmove', e => { if (IS_TOUCH && e.target.closest &
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 async function main() {
-  const manifest = await (await fetch('tiles/manifest.json')).json();
+  const BASE = (qs.get('tiles') || 'tiles').replace(/\/?$/, '/');
+  const manifest = await (await fetch(BASE + 'manifest.json')).json();
   const canvas = $('view');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: qs.get('aa') !== '0', powerPreference: 'high-performance', preserveDrawingBuffer: qs.has('shot') });
   // adaptive quality governor: level 3 = best (iPhone 16: pixel ratio 2, MSAA, soft shadows, full detail); drops a level when fps < ~40
@@ -58,20 +67,21 @@ async function main() {
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.35; sun.shadow.radius = 3.2;
   scene.add(sun, sun.target);
 
-  const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
+  const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { base: BASE, shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
 
   // ---- player
   const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, fly: false, grounded: false, eye: 0, inWater: false, wl: null };
   const keys = {};
   const T = { jx: 0, jy: 0, jump: false, run: false, down: false };
   const teleport = (x, z, yaw, pitch) => { P.x = x; P.z = z; P.vx = P.vz = P.vy = 0; if (yaw !== undefined) P.yaw = yaw; if (pitch !== undefined) P.pitch = pitch;
-    const gy = world.heightAt(x, z); P.y = Math.max(world.groundAt(x, z, gy + 300), gy) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; };
+    const gy = world.heightAt(x, z); P.y = Math.max(world.groundAt(x, z, gy + 300), gy) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; P.px0 = x; P.pz0 = z;
+    P.wait = !world.tiles.get(Math.floor(x / 500) + '_' + Math.floor(z / 500))?.h; };   // far teleport: hold the player until the tile under them has loaded
   let started = false, locked = false, spawned = false;
   const gotoDoor = (pl, dist = 5, yawOff = 0) => { const d = pl.door; P.fly = false; teleport(d.mx + d.nx * dist, d.mz + d.nz * dist, Math.atan2(d.nx, d.nz) + yawOff, 0); P.y = world.heightAt(P.x, P.z); P.eye = P.y + 1.7; world.interiors.forceBuild(P); return pl; };
   const spawn = () => {
-    const sx = parseFloat(qs.get('x') ?? '0'), sz = parseFloat(qs.get('z') ?? '0');
+    const sx = parseFloat(qs.get('x') ?? START.x), sz = parseFloat(qs.get('z') ?? START.z);
     P.fly = qs.get('fly') === '1';
-    teleport(sx, sz, THREE.MathUtils.degToRad(parseFloat(qs.get('yaw') ?? '0')), THREE.MathUtils.degToRad(parseFloat(qs.get('pitch') ?? '0')));
+    teleport(sx, sz, THREE.MathUtils.degToRad(parseFloat(qs.get('yaw') ?? START.yaw)), THREE.MathUtils.degToRad(parseFloat(qs.get('pitch') ?? '0')));
     if (qs.has('h')) { P.y = parseFloat(qs.get('h')); P.eye = P.y + 1.7; }
     if (qs.has('door')) {   // debug: stand ~5 m in front of the nearest enterable building's door (door=1; &minlv=N to need N+ floors)
       const minlv = parseInt(qs.get('minlv') || '1'), plans = world.interiors.plans().filter(p => p.n >= minlv && p.tile.alive);
@@ -102,11 +112,11 @@ async function main() {
   addEventListener('keydown', e => {
     if (e.repeat) return; keys[e.code] = true;
     if (e.code === 'KeyF') { P.fly = !P.fly; P.vy = 0; }
-    if (e.code === 'KeyR') teleport(0, 0, 0, 0);
+    if (e.code === 'KeyR') teleport(START.x, START.z, THREE.MathUtils.degToRad(START.yaw), 0);
     if (e.code === 'KeyH') $('help').style.display = $('help').style.display === 'none' ? '' : 'none';
     if (e.code === 'KeyM') toggleMap();
     if (e.code === 'KeyG') toggleShadows();
-    if (e.code.startsWith('Digit')) { const i = +e.code.slice(5) - 1; if (LANDMARKS[i]) { const [x, z] = ll2xz(LANDMARKS[i][1], LANDMARKS[i][2]); teleport(x, z); } }
+    if (e.code.startsWith('Digit')) { const i = +e.code.slice(5) - 1; if (LANDMARKS[i]) { const [x, z] = lmXZ(LANDMARKS[i]); teleport(x, z); } }
     if (e.code === 'Space') e.preventDefault();
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
@@ -126,35 +136,61 @@ async function main() {
   addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 
   // ---- minimap
-  const mm = manifest.minimap, mimg = new Image(); mimg.src = 'tiles/' + mm.file; let mmOK = false; mimg.onload = () => { mmOK = true; };
+  const mm = manifest.minimap, OV = mm.overview, ovimg = new Image(); ovimg.src = BASE + OV.file; let mmOK = false; ovimg.onload = () => { mmOK = true; };
+  const mmSet = new Set(mm.blocks.map(b => b[0] + '_' + b[1])), blkImg = new Map();
+  const getBlk = (bx, bz) => { const k = bx + '_' + bz; if (!mmSet.has(k)) return null; let o = blkImg.get(k); if (!o) { o = { img: new Image(), ok: false }; o.img.onload = () => { o.ok = true; }; o.img.src = BASE + mm.dir + `m_${k}.webp`; blkImg.set(k, o); } return o.ok ? o.img : null; };
   const mctx = $('minicv').getContext('2d');
+  // draw the map: detailed 3 km block images where loaded, 16 m/px overview as fallback; k = px per metre, (cx,cz) = world point at canvas centre
+  function paintMap(ctx, W, H, cx, cz, k, fine) {
+    ctx.fillStyle = '#3a4049'; ctx.fillRect(0, 0, W, H);
+    if (mmOK) ctx.drawImage(ovimg, 0, 0, ovimg.width, ovimg.height, W / 2 + (OV.x0 - cx) * k, H / 2 + (OV.z0 - cz) * k, ovimg.width * OV.mpp * k, ovimg.height * OV.mpp * k);
+    if (!fine) return;
+    const bs = mm.bs, x0 = cx - W / 2 / k, x1 = cx + W / 2 / k, z0 = cz - H / 2 / k, z1 = cz + H / 2 / k;
+    for (let bx = Math.floor(x0 / bs); bx <= Math.floor(x1 / bs); bx++) for (let bz = Math.floor(z0 / bs); bz <= Math.floor(z1 / bs); bz++) {
+      const im = getBlk(bx, bz); if (im) ctx.drawImage(im, W / 2 + (bx * bs - cx) * k, H / 2 + (bz * bs - cz) * k, bs * k, bs * k);
+    }
+  }
   function drawMini() {
-    if (!mmOK) return; const W = 200, view = 500, sp = view / mm.mpp, cx = (P.x - mm.x0) / mm.mpp, cz = (P.z - mm.z0) / mm.mpp;
-    mctx.fillStyle = '#9ab'; mctx.fillRect(0, 0, W, W);
-    mctx.drawImage(mimg, cx - sp / 2, cz - sp / 2, sp, sp, 0, 0, W, W);
+    const W = 200; paintMap(mctx, W, W, P.x, P.z, W / 500, true);
     mctx.save(); mctx.translate(W / 2, W / 2); mctx.rotate(-P.yaw);   // arrow: yaw 0 = north (up)
     mctx.fillStyle = '#e33'; mctx.strokeStyle = '#fff'; mctx.lineWidth = 2; mctx.beginPath(); mctx.moveTo(0, -9); mctx.lineTo(6, 7); mctx.lineTo(0, 3); mctx.lineTo(-6, 7); mctx.closePath(); mctx.fill(); mctx.stroke(); mctx.restore();
     mctx.fillStyle = '#000'; mctx.font = 'bold 11px sans-serif'; mctx.fillText('С', 94, 12);
   }
   let mapOpen = false; const bigcv = $('bigcv'), bctx = bigcv.getContext('2d');
+  const BV = { cx: 0, cz: 0, k: 0.01, kmin: 0.004, w: 0, h: 0 };   // big map view: centre (world m), scale px/m
   function drawBig() {
-    bigcv.width = innerWidth; bigcv.height = innerHeight; const s = Math.min(innerWidth / mimg.width, innerHeight / mimg.height) * 0.96;
-    const ox = (innerWidth - mimg.width * s) / 2, oy = (innerHeight - mimg.height * s) / 2; bigcv._t = { s, ox, oy };
-    bctx.drawImage(mimg, ox, oy, mimg.width * s, mimg.height * s);
-    const toS = (x, z) => [ox + (x - mm.x0) / mm.mpp * s, oy + (z - mm.z0) / mm.mpp * s];
-    bctx.font = '13px sans-serif'; LANDMARKS.forEach((l, i) => { const [x, z] = ll2xz(l[1], l[2]), [sx, sy] = toS(x, z); bctx.fillStyle = '#c22'; bctx.beginPath(); bctx.arc(sx, sy, 5, 0, 7); bctx.fill(); bctx.fillStyle = '#012'; bctx.fillText((i + 1) + ' ' + l[0], sx + 8, sy + 4); });
+    if (bigcv.width !== innerWidth || bigcv.height !== innerHeight) { bigcv.width = innerWidth; bigcv.height = innerHeight; }
+    const W = bigcv.width, H = bigcv.height; BV.w = W; BV.h = H;
+    BV.kmin = Math.min(W / (manifest.bounds[2] - manifest.bounds[0]), H / (manifest.bounds[3] - manifest.bounds[1])) * 0.95;
+    BV.k = Math.max(BV.kmin, Math.min(BV.k, 0.6));
+    paintMap(bctx, W, H, BV.cx, BV.cz, BV.k, BV.k > 0.03);
+    const toS = (x, z) => [W / 2 + (x - BV.cx) * BV.k, H / 2 + (z - BV.cz) * BV.k];
+    bctx.strokeStyle = 'rgba(255,255,255,.55)'; bctx.lineWidth = 1.5; bctx.beginPath(); manifest.city.forEach((p, i) => { const [sx, sy] = toS(p[0], p[1]); i ? bctx.lineTo(sx, sy) : bctx.moveTo(sx, sy); }); bctx.closePath(); bctx.stroke();
+    bctx.font = '13px sans-serif'; LANDMARKS.forEach((l, i) => { const [x, z] = lmXZ(l), [sx, sy] = toS(x, z); bctx.fillStyle = '#c22'; bctx.beginPath(); bctx.arc(sx, sy, 4, 0, 7); bctx.fill(); bctx.lineWidth = 3; bctx.strokeStyle = 'rgba(255,255,255,.85)'; bctx.strokeText(l[0], sx + 7, sy + 4); bctx.fillStyle = '#012'; bctx.fillText(l[0], sx + 7, sy + 4); });
     const [px, py] = toS(P.x, P.z); bctx.fillStyle = '#06f'; bctx.strokeStyle = '#fff'; bctx.lineWidth = 2; bctx.beginPath(); bctx.arc(px, py, 6, 0, 7); bctx.fill(); bctx.stroke();
   }
-  function toggleMap() { $('bClose').style.display = !mapOpen ? 'flex' : 'none'; mapOpen = !mapOpen; $('big').style.display = $('bigtip').style.display = mapOpen ? 'block' : 'none'; if (mapOpen) { if (document.pointerLockElement) document.exitPointerLock(); drawBig(); } }
-  const mapTap = e => { const t = bigcv._t; if (!t) return; const pt = e.changedTouches ? e.changedTouches[0] : e; const x = (pt.clientX - t.ox) / t.s * mm.mpp + mm.x0, z = (pt.clientY - t.oy) / t.s * mm.mpp + mm.z0; teleport(x, z); toggleMap(); };
-  bigcv.addEventListener('click', mapTap);
+  function toggleMap() { $('bClose').style.display = !mapOpen ? 'flex' : 'none'; mapOpen = !mapOpen; $('big').style.display = $('bigtip').style.display = mapOpen ? 'block' : 'none'; if (mapOpen) { BV.cx = P.x; BV.cz = P.z; BV.k = Math.max(BV.k, 0.04); $('bigtip').textContent = 'Карта: перетащить — сдвиг · щипок/колесо — масштаб · тап — телепорт · M / Esc — закрыть'; if (document.pointerLockElement) document.exitPointerLock(); drawBig(); } }
+  { // big map: drag = pan, wheel / pinch = zoom, tap = teleport
+    bigcv.style.touchAction = 'none'; const ptrs = new Map(); let moved = 0, pinch0 = 0, k0 = 0;
+    const world2 = (sx, sy) => [BV.cx + (sx - BV.w / 2) / BV.k, BV.cz + (sy - BV.h / 2) / BV.k];
+    bigcv.addEventListener('pointerdown', e => { bigcv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); k0 = BV.k; } });
+    bigcv.addEventListener('pointermove', e => { const p = ptrs.get(e.pointerId); if (!p) return;
+      if (ptrs.size === 1) { const dx = e.clientX - p.x, dy = e.clientY - p.y; moved += Math.abs(dx) + Math.abs(dy); BV.cx -= dx / BV.k; BV.cz -= dy / BV.k; }
+      p.x = e.clientX; p.y = e.clientY;
+      if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; BV.k = k0 * Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1, pinch0); moved += 20; }
+      drawBig(); });
+    const up = e => { const had = ptrs.has(e.pointerId); ptrs.delete(e.pointerId);
+      if (had && ptrs.size === 0 && moved < 8 && e.type === 'pointerup') { const [x, z] = world2(e.clientX, e.clientY); if (world.manifestTiles.has(Math.floor(x / 500) + '_' + Math.floor(z / 500))) { teleport(x, z); toggleMap(); } else { $('bigtip').textContent = 'Здесь нет карты города — выберите точку внутри границы Киева'; } } };
+    bigcv.addEventListener('pointerup', up); bigcv.addEventListener('pointercancel', up);
+    bigcv.addEventListener('wheel', e => { e.preventDefault(); const [wx, wz] = world2(e.clientX, e.clientY); BV.k *= Math.exp(-e.deltaY * 0.0015); BV.k = Math.max(BV.kmin, Math.min(BV.k, 0.6)); BV.cx = wx - (e.clientX - BV.w / 2) / BV.k; BV.cz = wz - (e.clientY - BV.h / 2) / BV.k; drawBig(); }, { passive: false });
+  }
   $('bClose').addEventListener('touchstart', e => { e.preventDefault(); if (mapOpen) toggleMap(); }, { passive: false }); $('bClose').addEventListener('click', () => { if (mapOpen) toggleMap(); });
   setupTouch();
 
   if (IS_TOUCH) $('gotxt').textContent = 'Коснитесь экрана, чтобы начать';
   $('help').innerHTML = `<b>WASD</b> — ходьба · <b>мышь</b> — взгляд · <b>Shift</b> — бег · <b>Пробел</b> — прыжок<br>
     <b>F</b> — полёт/ходьба (в полёте: Пробел вверх, Ctrl/C вниз, Shift — ускорение)<br>
-    <b>1–9</b> — телепорт к местам · <b>M</b> — карта (клик = телепорт) · <b>R</b> — на Майдан · <b>G</b> — тени · <b>H</b> — скрыть подсказку<br>
+    <b>1–9</b> — телепорт к местам · <b>M</b> — карта (клик = телепорт) · <b>R</b> — на вокзал (старт) · <b>G</b> — тени · <b>H</b> — скрыть подсказку<br>
     <span style="opacity:.7">Esc — пауза</span>`;
 
   // ---- touch controls
@@ -185,7 +221,7 @@ async function main() {
     const list = document.createElement('div'); list.id = 'places'; list.style.cssText = 'position:fixed;inset:0;z-index:9;background:rgba(8,14,22,.92);display:none;overflow:auto;padding:calc(20px + env(safe-area-inset-top)) 20px 20px;touch-action:pan-y;';
     list.innerHTML = '<div style="font-size:18px;margin-bottom:10px;font-weight:600">Куда телепортироваться?</div>';
     const mk = (txt, fn) => { const b = document.createElement('div'); b.textContent = txt; b.style.cssText = 'padding:14px 12px;margin:6px 0;background:rgba(255,255,255,.12);border-radius:10px;font-size:16px'; b.addEventListener('click', () => { list.style.display = 'none'; fn(); }); list.appendChild(b); };
-    LANDMARKS.forEach(l => mk(l[0], () => { const [x, z] = ll2xz(l[1], l[2]); teleport(x, z); }));
+    LANDMARKS.forEach(l => mk(l[0], () => { const [x, z] = lmXZ(l); teleport(x, z); }));
     mk('Закрыть', () => {}); document.body.appendChild(list);
     tstart($('bMore'), () => { list.style.display = 'block'; });
     $('bFly').classList.toggle('on', P.fly);
@@ -211,6 +247,8 @@ async function main() {
     P.vx += (tx - P.vx) * a; P.vz += (tz - P.vz) * a;
     P.x += P.vx * dt; P.z += P.vz * dt;
     const b = manifest.bounds; P.x = Math.min(Math.max(P.x, b[0] + 3), b[2] - 3); P.z = Math.min(Math.max(P.z, b[1] + 3), b[3] - 3);
+    if (!world.manifestTiles.has(Math.floor(P.x / 500) + '_' + Math.floor(P.z / 500))) { P.x = P.px0; P.z = P.pz0; P.vx = P.vz = 0; }   // edge of the city: no tile beyond the border
+    else { P.px0 = P.x; P.pz0 = P.z; }
     if (P.fly) {
       P.y += (wy / nrm) * sp * dt * Math.min(1, nrm); P.vy = 0;
       const gy = world.groundAt(P.x, P.z, P.y); if (P.y < gy + 0.4) P.y = gy + 0.4; P.grounded = false;
@@ -234,18 +272,19 @@ async function main() {
     const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
     governor(raw); frames++; tacc += raw; if (tacc > 0.5) { fps = frames / tacc; frames = 0; tacc = 0; updateHud(); }
     const before = world.tiles.size;
-    world.update(P, dt, spawned ? (MOB ? 3 : 6) : 40);
+    if (spawned) world.update(P, dt, MOB ? 3 : 6);
     if (spawned) world.interiors.update(P, dt, MOB ? 3 : 5);
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
-      const sx = parseFloat(qs.get('x') ?? '0'), sz = parseFloat(qs.get('z') ?? '0');
+      const sx = parseFloat(qs.get('x') ?? START.x), sz = parseFloat(qs.get('z') ?? START.z);
       const need = []; for (let ix = Math.floor((sx - 500) / 500); ix <= Math.floor((sx + 500) / 500); ix++) for (let iz = Math.floor((sz - 500) / 500); iz <= Math.floor((sz + 500) / 500); iz++) if (world.manifestTiles.has(ix + '_' + iz) && Math.hypot((ix + 0.5) * 500 - sx, (iz + 0.5) * 500 - sz) < world.loadR) need.push(ix + '_' + iz);
       const have = need.filter(k => world.tiles.get(k)?.h).length;
       $('bar').firstElementChild.style.width = (100 * have / Math.max(1, need.length)) + '%'; $('msg').textContent = `Загрузка тайлов: ${have}/${need.length}…`;
       world.update({ x: sx, z: sz }, dt, 40);
       if (have >= need.length) { spawn(); updateHud(); $('msg').textContent = 'Готово'; $('go').style.display = 'block'; $('bar').style.display = 'none'; if (qs.has('autostart')) { started = true; $('overlay').style.display = 'none'; } }
     } else if (started || qs.has('autostart') || true) {
-      if (started && !mapOpen) physics(dt);
+      if (P.wait) { const tt = world.tiles.get(Math.floor(P.x / 500) + '_' + Math.floor(P.z / 500)); if (tt && tt.h) { P.wait = false; const g0 = world.heightAt(P.x, P.z); P.y = Math.max(world.groundAt(P.x, P.z, g0 + 300), g0) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; } }
+      else if (started && !mapOpen) physics(dt);
     }
     const bob = 0; const targetEye = P.y + EYE; P.eye += (targetEye - P.eye) * Math.min(1, dt * (P.grounded ? 18 : 40)); if (P.fly) P.eye = targetEye;
     camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0);

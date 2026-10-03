@@ -71,7 +71,9 @@ export class World {
     this.lampGeo = (() => { const a = new THREE.CylinderGeometry(0.06, 0.08, 6, 6); a.translate(0, 3, 0); const b = new THREE.BoxGeometry(1.0, 0.12, 0.3); b.translate(0.5, 6.0, 0); return mergeGeometries([a, b]); })();
     this.lampMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.6, metalness: 0.5 });
     this.stats = { buildings: 0, tris: 0 };
+    this.base = opts.base || 'tiles/'; this.v2 = manifest.v === 2;
     this.manifestTiles = new Map(manifest.tiles.map(t => [t[0] + '_' + t[1], t]));
+    { const d = new Uint8Array([0, 0, 0, 255]); this.flatSplat = new THREE.DataTexture(d, 1, 1); this.flatSplat.needsUpdate = true; this.flatSplat.userData = { shared: true }; }
     this.bounds = manifest.bounds;
     this.interiors = new InteriorManager(this, scene);
   }
@@ -165,19 +167,18 @@ export class World {
   // ---------------------------------------------------------------- streaming
   update(cam, dt, budgetMs = 6) {
     const T = this.TILE, px = cam.x, pz = cam.z;
-    const [ix0, ix1] = this.man.ix, [iz0, iz1] = this.man.iz;
-    const want = [];
-    for (let ix = ix0; ix < ix1; ix++) for (let iz = iz0; iz < iz1; iz++) {
-      const cx = (ix + 0.5) * T, cz = (iz + 0.5) * T, d = Math.hypot(cx - px, cz - pz);
-      const key = ix + '_' + iz;
-      if (d < this.loadR && !this.tiles.has(key) && !this.loading.has(key)) want.push([d, ix, iz, key]);
-      const t = this.tiles.get(key);
-      if (t) {
-        if (d > this.unloadR) { this.unloadTile(key); continue; }
-        const vis = d < this.loadR + 400; t.group.visible = vis;
-        if (t.treeGroup) t.treeGroup.visible = d < 700;
-        if (t.detail) t.detail.visible = d < this.detailR;
-      }
+    const want = [], R = this.loadR, R2 = this.unloadR;
+    const a0 = Math.floor((px - R) / T), a1 = Math.floor((px + R) / T), b0 = Math.floor((pz - R) / T), b1 = Math.floor((pz + R) / T);
+    for (let ix = a0; ix <= a1; ix++) for (let iz = b0; iz <= b1; iz++) {
+      const key = ix + '_' + iz; if (!this.manifestTiles.has(key) || this.tiles.has(key) || this.loading.has(key)) continue;
+      const d = Math.hypot((ix + 0.5) * T - px, (iz + 0.5) * T - pz); if (d < R) want.push([d, ix, iz, key]);
+    }
+    for (const [key, t] of this.tiles) {
+      const d = Math.hypot((t.ix + 0.5) * T - px, (t.iz + 0.5) * T - pz);
+      if (d > R2) { this.unloadTile(key); continue; }
+      t.group.visible = d < R + 400;
+      if (t.treeGroup) t.treeGroup.visible = d < 700;
+      if (t.detail) t.detail.visible = d < this.detailR;
     }
     want.sort((a, b) => a[0] - b[0]);
     for (const w of want) { if (this.loading.size >= 4) break; this.loadTile(w[1], w[2], w[3]); }
@@ -189,17 +190,30 @@ export class World {
   async loadTile(ix, iz, key) {
     this.loading.add(key);
     try {
+      const me = this.manifestTiles.get(key), hasSplat = !this.v2 || (me && me[5]);
       const [data, splat] = await Promise.all([
-        fetch(`tiles/t_${ix}_${iz}.json`).then(r => { if (!r.ok) throw new Error('tile ' + key + ' ' + r.status); return r.json(); }),
-        new Promise((res) => { const im = new THREE.TextureLoader().load(`tiles/t_${ix}_${iz}.png`, t => res(t), undefined, () => res(null)); })]);
+        fetch(`${this.base}t_${ix}_${iz}.json`).then(r => { if (!r.ok) throw new Error('tile ' + key + ' ' + r.status); return r.json(); }),
+        hasSplat ? new Promise((res) => { new THREE.TextureLoader().load(`${this.base}t_${ix}_${iz}.png`, t => res(t), undefined, () => res(null)); }) : Promise.resolve(this.flatSplat)]);
+      if (data.v === 2) this._denorm(data, ix * this.TILE, iz * this.TILE);
       this.ready.push({ ix, iz, key, data, splat });
-    } catch (e) { console.error(e); this.loading.delete(key); this.tiles.set(key, { failed: true, group: new THREE.Group(), cellKeys: new Set() }); }
+    } catch (e) { console.error(e); this.loading.delete(key); this.tiles.set(key, { failed: true, ix, iz, group: new THREE.Group(), cellKeys: new Set() }); }
+  }
+  // tile format v2: coordinates are tile-local, heights quantised -> absolute world coordinates (in place)
+  _denorm(d, ox, oz) {
+    const sh = a => { if (a) for (let i = 0; i + 1 < a.length; i += 2) { a[i] += ox; a[i + 1] += oz; } };
+    const h = new Float32Array(d.h.length); for (let i = 0; i < h.length; i++) h[i] = d.hb + d.h[i] / 10; d.h = h;
+    for (const b of d.b || []) { sh(b.p); if (b.i) b.i.forEach(sh); }
+    for (const r of d.r || []) sh(r.p);
+    for (const w of d.w || []) { sh(w.p); if (w.i) w.i.forEach(sh); }
+    for (const w of d.wl || []) sh(w.p);
+    if (d.t) for (let i = 0; i < d.t.length; i += 4) { d.t[i] += ox; d.t[i + 1] += oz; }
+    sh(d.l);
   }
   unloadTile(key) {
     const t = this.tiles.get(key); if (!t) return;
     t.alive = false; if (this.interiors) this.interiors.disposeTile(t);
     this.scene.remove(t.group); if (t.treeGroup) this.scene.remove(t.treeGroup);
-    for (const g of [t.group, t.treeGroup]) if (g) g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.userData.ownMat) { o.material.dispose(); } if (o.userData.splat) o.userData.splat.dispose(); });
+    for (const g of [t.group, t.treeGroup]) if (g) g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.userData.ownMat) { o.material.dispose(); } if (o.userData.splat && !(o.userData.splat.userData && o.userData.splat.userData.shared)) o.userData.splat.dispose(); });
     for (const k of t.cellKeys) { const c = this.cells.get(k); if (!c) continue; for (const a of ['walls', 'roofs', 'decks']) c[a] = c[a].filter(o => o.tile !== key); if (!c.walls.length && !c.roofs.length && !c.decks.length && !c.floors.length) this.cells.delete(k); }
     this.tiles.delete(key);
   }
@@ -241,7 +255,7 @@ export class World {
   }
 
   _terrainMat(ox, oz, splat) {
-    if (splat) { splat.flipY = false; splat.colorSpace = THREE.NoColorSpace; splat.wrapS = splat.wrapT = THREE.ClampToEdgeWrapping; splat.minFilter = THREE.LinearMipmapLinearFilter; splat.generateMipmaps = true; splat.needsUpdate = true; }
+    if (splat && !(splat.userData && splat.userData.shared)) { splat.flipY = false; splat.colorSpace = THREE.NoColorSpace; splat.wrapS = splat.wrapT = THREE.ClampToEdgeWrapping; splat.minFilter = THREE.LinearMipmapLinearFilter; splat.generateMipmaps = true; splat.needsUpdate = true; }
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
     const gt = this.gt, T = this.TILE;
     m.onBeforeCompile = (sh) => {
