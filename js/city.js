@@ -148,10 +148,30 @@ export class City {
     out.x = x0 + (x1 - x0) * f + (-dz) * off; out.z = z0 + (z1 - z0) * f + dx * off; out.dx = dx; out.dz = dz;
     out.y = path.y ? path.y[lo] + (path.y[hi] - path.y[lo]) * f : null; return out;
   }
-  _next(path, end, fromCls) {   // choose a continuation at the path end (end: 1 = reached its end, 0 = reached its start)
+  _astar(path, i0, k0, firstOpts, T) {
+    const keyEnd = (p, atEnd) => { const j = atEnd ? p.n - 1 : 0; return keyOf(p.pts[2 * j], p.pts[2 * j + 1]); };
+    const xz = (p, atEnd) => { const j = atEnd ? p.n - 1 : 0; return [p.pts[2 * j], p.pts[2 * j + 1]]; };
+    const g = new Map([[k0, 0]]), first = new Map(), open = [[0, k0, 0]], pos = new Map(); let best = null, bh = 1e18, ex = 0;
+    const h = (x, z) => Math.hypot(x - T.x, z - T.z);
+    while (open.length && ex++ < 700) {
+      let mi = 0; for (let q = 1; q < open.length; q++) if (open[q][0] < open[mi][0]) mi = q; const [, k] = open.splice(mi, 1)[0];
+      const gk = g.get(k); const p0 = pos.get(k);
+      if (p0) { const hh = h(p0[0], p0[1]); if (hh < bh) { bh = hh; best = k; } if (hh < 45) { best = k; break; } }
+      const edges = k === k0 ? firstOpts : (this.nodes.get(k) || []);
+      for (const e of edges) {
+        if (e.path.cls < 1) continue; const fk = keyEnd(e.path, !e.end), ng = gk + e.path.len;
+        if (g.has(fk) && g.get(fk) <= ng) continue; g.set(fk, ng); first.set(fk, k === k0 ? e : first.get(k)); const pp = xz(e.path, !e.end); pos.set(fk, pp); open.push([ng + h(pp[0], pp[1]) * 1.1, fk, ng]);
+      }
+    }
+    return best ? first.get(best) || null : null;
+  }
+  _next(path, end, fromCls, toward) {   // choose a continuation at the path end (end: 1 = reached its end, 0 = reached its start)
     const i = end ? path.n - 1 : 0, k = keyOf(path.pts[2 * i], path.pts[2 * i + 1]), a = this.nodes.get(k); if (!a) return null;
     const opts = a.filter(e => e.path !== path && e.path.cls >= 1 && (fromCls < 1 ? e.path.cls < 2 : true));
     if (!opts.length) return null;
+    if (toward) {   // police chase: A* over the junction graph towards the target (bounded), first edge of the best route
+      const r = this._astar(path, i, k, opts, toward); if (r) return { e: r, deg: a.length };
+    }
     const w = opts.map(e => 1 + (e.path.cls === path.cls ? 1.5 : 0) + e.path.cls * 0.2); let r = Math.random() * w.reduce((s, v) => s + v, 0);
     for (let j = 0; j < opts.length; j++) { r -= w[j]; if (r <= 0) return { e: opts[j], deg: a.length }; }
     return { e: opts[0], deg: a.length };
@@ -192,6 +212,13 @@ export class City {
     if (c.kind === 'taxi') c.col.set(0xf1c40f);
     if (parked) { c.s = pt.s; c.off = (p.w / 2 + 1.1) * (Math.random() < 0.5 ? 1 : -1); } else { c.off = p.oneway ? 0 : Math.max(1.4, p.w / 4); c.speed = c.vmax * 0.7; }
     this.cars.push(c); this._placeCar(c); return true;
+  }
+  spawnPolice(P) {   // a police car on a road 80-200 m away, driving along the road graph towards this.chaseTarget
+    const pt = this._randomPoint(P, 80, Math.min(this.carR, 200), 2, 6) || this._randomPoint(P, 50, this.carR, 1, 6); if (!pt) return null;
+    const p = pt.path, T = this.chaseTarget || P, o = {};
+    const c = { path: p, s: pt.s, dir: 1, speed: 0, vmax: 21, col: new THREE.Color(0xffffff), wait: 0, x: 0, y: 0, z: 0, yaw: 0, parked: false, hp: 100, kind: 'police', police: true, off: p.oneway ? 0 : Math.max(1.4, p.w / 4) };
+    City.at(p, 0, 1, 0, o); const d0 = Math.hypot(o.x - T.x, o.z - T.z); City.at(p, p.len, 1, 0, o); const d1 = Math.hypot(o.x - T.x, o.z - T.z);
+    c.dir = d1 < d0 ? 1 : -1; if (p.oneway) c.dir = 1; c.speed = 8; this.cars.push(c); this._placeCar(c); return c;
   }
   _placeCar(c) {
     const o = City._o2 || (City._o2 = {}); City.at(c.path, c.s, c.dir, c.parked ? c.off * c.dir : c.off, o); c.x = o.x; c.z = o.z; c.yaw = Math.atan2(o.dx, o.dz);
@@ -276,6 +303,7 @@ export class City {
     for (const c of this.cars) {
       if (c.parked || c.player) continue;
       const p = c.path; let target = c.vmax;
+      if (c.police && this.chaseTarget && Math.hypot(c.x - this.chaseTarget.x, c.z - this.chaseTarget.z) < 30) { target = 0; c.arrived = true; } else if (c.police && c.arrived) target = 0;
       // car following (same path & direction) + simple stop at junctions
       for (const d of this.cars) {
         if (d === c || d.path !== p || d.parked) continue;
@@ -283,15 +311,15 @@ export class City {
       }
       const distEnd = c.dir > 0 ? p.len - c.s : c.s;
       if (c.wait > 0) { c.wait -= dt; target = 0; }
-      else if (distEnd < 7 && p.cls <= 4) {
+      else if (distEnd < 7 && p.cls <= 4 && !c.police) {
         const nxt = this.nodes.get(keyOf(p.pts[c.dir > 0 ? 2 * (p.n - 1) : 0], p.pts[c.dir > 0 ? 2 * (p.n - 1) + 1 : 1]));
         if (nxt && nxt.length >= 3 && !c.passed) { target = Math.min(target, Math.max(1.2, distEnd * 0.9)); if (distEnd < 1.8) { c.wait = rnd(0.7, 2.4); c.passed = true; } }
       }
       const acc = target > c.speed ? 3.0 : 7.0; c.speed += Math.sign(target - c.speed) * Math.min(Math.abs(target - c.speed), acc * dt);
       c.s += c.dir * c.speed * dt;
       if (c.s <= 0 || c.s >= p.len) {
-        const nx = this._next(p, c.s >= p.len ? 1 : 0, 1);
-        if (nx) { const e = nx.e; c.path = e.path; c.s = e.end ? e.path.len - 0.02 : 0.02; c.dir = e.end ? -1 : 1; c.passed = false; c.off = e.path.oneway ? 0 : Math.max(1.4, e.path.w / 4); c.vmax = CLS_SPEED[e.path.cls] * rnd(0.8, 1.1); }
+        const nx = this._next(p, c.s >= p.len ? 1 : 0, 1, c.police ? this.chaseTarget : null);
+        if (nx) { const e = nx.e; c.path = e.path; c.s = e.end ? e.path.len - 0.02 : 0.02; c.dir = e.end ? -1 : 1; c.passed = false; c.off = e.path.oneway ? 0 : Math.max(1.4, e.path.w / 4); c.vmax = c.police ? 21 : CLS_SPEED[e.path.cls] * rnd(0.8, 1.1); }
         else { c.dir = -c.dir; c.s = Math.max(0.02, Math.min(p.len - 0.02, c.s)); c.passed = false; }
       }
       this._placeCar(c);

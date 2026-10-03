@@ -15,7 +15,12 @@ const ll2xz = (lat, lon) => [(lon - LON0) * KX, -(lat - LAT0) * KY];
 const xz2ll = (x, z) => [LAT0 - z / KY, LON0 + x / KX];
 
 // start / respawn point: square in front of the main entrance of Kyiv-Pasazhyrskyi central railway station (50.4411N 30.4891E), facing the building
-const START = { x: -2363.5, z: 1036.3, yaw: 131 };   // yaw in degrees, 0 = north
+const START = { x: -2363.5, z: 1036.3, yaw: 131 };
+// debug spawn: ?lat=..&lon=.. or ?at=palladina11|troieshchyna|darnytsia|... (explicit x/z still win)
+const AT = { palladina11: [50.4620881, 30.3526914], troieshchyna: [50.5137, 30.6065], darnytsia: [50.4558, 30.6129], pozniaky: [50.3971, 30.6339], obolon: [50.5033, 30.4985], sizo: [50.4608, 30.4795] };
+const ATLL = qs.has('lat') ? [parseFloat(qs.get('lat')), parseFloat(qs.get('lon'))] : (AT[qs.get('at')] || null);
+const ATXZ = ATLL ? ll2xz(ATLL[0], ATLL[1]) : null;
+const SPX = parseFloat(qs.get('x') ?? (ATXZ ? ATXZ[0] : START.x)), SPZ = parseFloat(qs.get('z') ?? (ATXZ ? ATXZ[1] : START.z));   // yaw in degrees, 0 = north
 const lmXZ = l => l[3] !== undefined ? [l[3], l[4]] : ll2xz(l[1], l[2]);
 const LANDMARKS = [
   ['Ж/д вокзал Киев-Пассажирский (старт)', 50.4411, 30.4891, START.x, START.z],
@@ -85,7 +90,7 @@ async function main() {
   let started = false, locked = false, spawned = false;
   const gotoDoor = (pl, dist = 5, yawOff = 0) => { const d = pl.door; P.fly = false; teleport(d.mx + d.nx * dist, d.mz + d.nz * dist, Math.atan2(d.nx, d.nz) + yawOff, 0); P.y = world.heightAt(P.x, P.z); P.eye = P.y + 1.7; world.interiors.forceBuild(P); return pl; };
   const spawn = () => {
-    const sx = parseFloat(qs.get('x') ?? START.x), sz = parseFloat(qs.get('z') ?? START.z);
+    const sx = SPX, sz = SPZ;
     P.fly = qs.get('fly') === '1';
     teleport(sx, sz, THREE.MathUtils.degToRad(parseFloat(qs.get('yaw') ?? START.yaw)), THREE.MathUtils.degToRad(parseFloat(qs.get('pitch') ?? '0')));
     if (qs.has('h')) { P.y = parseFloat(qs.get('h')); P.eye = P.y + 1.7; }
@@ -291,7 +296,7 @@ async function main() {
     if (spawned) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); pois.update(P, dt); game.update(P, dt); crime.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
-      const sx = parseFloat(qs.get('x') ?? START.x), sz = parseFloat(qs.get('z') ?? START.z);
+      const sx = SPX, sz = SPZ;
       const need = []; for (let ix = Math.floor((sx - 500) / 500); ix <= Math.floor((sx + 500) / 500); ix++) for (let iz = Math.floor((sz - 500) / 500); iz <= Math.floor((sz + 500) / 500); iz++) if (world.manifestTiles.has(ix + '_' + iz) && Math.hypot((ix + 0.5) * 500 - sx, (iz + 0.5) * 500 - sz) < world.loadR) need.push(ix + '_' + iz);
       const have = need.filter(k => world.tiles.get(k)?.h).length;
       $('bar').firstElementChild.style.width = (100 * have / Math.max(1, need.length)) + '%'; $('msg').textContent = `Загрузка тайлов: ${have}/${need.length}…`;

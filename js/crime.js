@@ -10,7 +10,7 @@ const WALL_H = 4.8, WALL_T = 0.5;
 export class Crime {
   constructor(ctx) {
     this.ctx = ctx; const { P, world, scene, city, pois, game } = ctx; Object.assign(this, { P, world, scene, city, pois, game });
-    game.crime = this; this.heat = 0; this.unseen = 0; this.cops = []; this.arrestM = 0; this.jail = null; this.driving = null; this.punchCd = 0; this.cdPick = new WeakMap();
+    game.crime = this; this.heat = 0; this.unseen = 0; this.cops = []; this.guards = []; this.pcars = []; this.pcT = 0; this.arrestM = 0; this.jail = null; this.driving = null; this.punchCd = 0; this.cdPick = new WeakMap();
     this.steer = 0; this.dbgQ = ctx.qs; this.sizoPoi = pois.items.find(p => p.key === 'sizo') || null; this.copCapBase = ctx.IS_TOUCH ? [2, 3, 5, 6] : [3, 5, 7, 9];
     this._hud(); this._sizoInit();
     game.addProvider((P, g) => this._provider(P, g));
@@ -35,10 +35,10 @@ export class Crime {
     if (this.punchCd > 0 || this.driving || this.jail && false || this.game.dead || UI.modal) return; this.punchCd = 0.55; const P = this.P;
     const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw); let best = null, bd = 2.2;
     const test = (a, cop) => { const dx = a.x - P.x, dz = a.z - P.z, d = Math.hypot(dx, dz); if (d > bd || a.state === 'down' || a.inside && false) return; if ((dx * fx + dz * fz) / (d || 1) < 0.35) return; if (Math.abs(a.y - P.y) > 2.2) return; bd = d; best = { a, cop }; };
-    for (const a of this.city.peds) test(a, false); for (const a of this.cops) test(a, true);
+    for (const a of this.city.peds) test(a, false); for (const a of this.cops) test(a, true); for (const a of this.guards) test(a, true);
     if (!best) return; const { a, cop } = best;
     a.state = cop ? 'stun' : 'stagger'; a.t = 0; a.hp = (a.hp || 3) - 1;
-    if (cop) { a.stun = 1.1; a.moving = 0; this.addHeat(0.6, 'нападение на полицейского'); return; }
+    if (cop) { a.stun = 1.1; a.moving = 0; this.addHeat(a.guard ? 1.2 : 0.6, a.guard ? 'нападение на охранника' : 'нападение на полицейского'); if (a.guard && this.jail) this.jail.t -= 15; return; }
     this.addHeat(this.witnessed() ? 0.35 : 0.1, 'драка');
     if (a.hp <= 0) { a.state = 'down'; a.t = 0; a.hp = 3; a.loot = a.loot === undefined ? Math.round(rnd(25, 110)) : a.loot; }
     for (const b of this.city.peds) if (b !== a && !b.inside && Math.hypot(b.x - a.x, b.z - a.z) < 14 && b.state === 'walk') { b.state = 'flee'; }
@@ -74,12 +74,57 @@ export class Crime {
     else { toast('🚨 Охрана подняла тревогу!'); this.addHeat(2.2, 'кража в магазине'); }
   }
   // ---------------------------------------------------------------- police
-  _clearCops() { this.cops.length = 0; this.city.extra.length = 0; this.arrestM = 0; }
-  _spawnCop() {
-    const P = this.P, a = Math.random() * 6.28, r = rnd(42, 70), x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r;
+  _clearCops() { this.cops.length = 0; this.city.extra = this.city.extra.filter(a => a.guard); this.arrestM = 0; }
+  _spawnCop(ax, az) {
+    const P = this.P, a = Math.random() * 6.28, r = rnd(42, 70), x = ax !== undefined ? ax + rnd(-1.5, 1.5) : P.x + Math.cos(a) * r, z = az !== undefined ? az + rnd(-1.5, 1.5) : P.z + Math.sin(a) * r;
     const t = this.world.tiles.get(Math.floor(x / 500) + '_' + Math.floor(z / 500)); if (!t || !t.h) return;
     const cop = { x, z, y: this.world.heightAt(x, z), yaw: 0, phase: Math.random() * 6, shirt: 0x1f3d7a, pants: 0x14181f, state: 'chase', t: 0, scale: 1.02, cop: true, moving: 1, stun: 0 };
     this.cops.push(cop); this.city.extra.push(cop);
+  }
+  // ---- police cars (drive along the road graph towards the player, drop two officers nearby, leave)
+  _updatePolice(P, dt) {
+    const st = this.stars, city = this.city; city.chaseTarget = { x: P.x, z: P.z };
+    const want = this.jail ? 0 : st >= 5 ? (this.ctx.IS_TOUCH ? 1 : 2) : st >= 3 ? 1 : 0;
+    this.pcars = city.cars.filter(c => c.police && !c.dead);
+    this.pcT -= dt;
+    if (this.pcars.length < want && this.pcT <= 0 && this.world.tiles.size) { this.pcT = 10; const c = city.spawnPolice(P); if (c) this.pcars.push(c); }
+    const flip = Math.floor(performance.now() / 260) % 2;
+    for (const c of this.pcars) {
+      c.col.setHex(flip ? 0x2255ff : 0xff2a2a);
+      const d = Math.hypot(c.x - P.x, c.z - P.z); c.near = (c.near || 0) + (d < 95 ? dt : 0); if (c.near > 6) c.arrived = true;
+      if (c.arrived && !c.dropped) { c.dropped = true; c.tdrop = 0; for (let k = 0; k < 2; k++) this._spawnCop(c.x, c.z); toast('🚓 Полицейская машина! Офицеры выходят'); }
+      if (c.dropped) { c.tdrop += dt; if (c.tdrop > 20) c.dead = true; }
+      if (!want || d > 320) c.dead = true;
+    }
+  }
+  // ---- SIZO guards: 2 at the gate, 2 patrolling the yard along the wall, 1 in the reception hall
+  _updateGuards(P, dt) {
+    const S = this.sizo, near = S && S.built && Math.hypot(P.x - S.cx, P.z - S.cz) < 380;
+    if (!near) { if (this.guards.length) { for (const g of this.guards) { const k = this.city.extra.indexOf(g); if (k >= 0) this.city.extra.splice(k, 1); } this.guards = []; } return; }
+    if (!this.guards.length) {
+      const mk = (x, z, y, yaw, kind, extra) => { const g = Object.assign({ x, z, y, yaw, phase: Math.random() * 6, shirt: 0x55623f, pants: 0x262b22, state: 'stand', t: 0, scale: 1.03, guard: true, moving: 0, stun: 0, kind }, extra || {}); this.guards.push(g); this.city.extra.push(g); return g; };
+      const gt = S.gate, mx = (gt.p0[0] + gt.p1[0]) / 2, mz = (gt.p0[1] + gt.p1[1]) / 2, tx = gt.p1[0] - gt.p0[0], tz = gt.p1[1] - gt.p0[1], tl = Math.hypot(tx, tz) || 1;
+      for (const s of [-1, 1]) { const x = mx - gt.nx * 2.5 + tx / tl * 2.3 * s, z = mz - gt.nz * 2.5 + tz / tl * 2.3 * s; mk(x, z, this.world.heightAt(x, z), Math.atan2(gt.nx, gt.nz), 'gate'); }
+      const w = S.wall, n = w.length / 2, ring = []; for (let i = 0; i < n; i++) { const x = w[2 * i], z = w[2 * i + 1], dx = S.cx - x, dz = S.cz - z, d = Math.hypot(dx, dz) || 1; ring.push([x + dx / d * 9, z + dz / d * 9]); }
+      for (let k = 0; k < 2; k++) { const i = (k * (n >> 1)) % n; mk(ring[i][0], ring[i][1], this.world.heightAt(ring[i][0], ring[i][1]), 0, 'patrol', { state: 'patrol', wp: (i + 1) % n, ring, stuck: 0 }); }
+      mk(S.cx, S.cz, 0, 0, 'hall', { hidden: true });
+    }
+    const pl = this.sizoPoi && this.sizoPoi.pl;
+    for (const g of this.guards) {
+      if (g.stun > 0) { g.stun -= dt; g.state = 'stagger'; g.moving = 0; if (g.stun <= 0) { g.state = g.kind === 'patrol' ? 'patrol' : 'stand'; } continue; }
+      if (g.kind === 'hall') {
+        if (pl && pl.tile && pl.tile.alive) { const I = this.world.interiors.active.get(pl); if (I && I.sp) { const d = pl.door; g.x = I.sp[0] - d.nz * 2.1; g.z = I.sp[1] + d.nx * 2.1; g.y = I.F0; g.yaw = Math.atan2(d.nx, d.nz); g.hidden = false; } else g.y = -500; }
+        else g.y = -500;
+        continue;
+      }
+      if (g.kind === 'patrol') {
+        const wp = g.ring[g.wp], dx = wp[0] - g.x, dz = wp[1] - g.z, d = Math.hypot(dx, dz);
+        if (d < 1.5) { g.wp = (g.wp + 1) % g.ring.length; g.stuck = 0; continue; }
+        const px = g.x, pz = g.z, s = 1.35 * dt; g.x += dx / d * s; g.z += dz / d * s; const p = { x: g.x, z: g.z }; this.world.collide(p, 0.4, g.y, 1.8); g.x = p.x; g.z = p.z;
+        g.yaw = Math.atan2(dx, dz); g.moving = 1; g.state = 'patrol'; g.y += (this.world.groundAt(g.x, g.z, g.y + 1.0) - g.y) * Math.min(1, dt * 10);
+        g.stuck += Math.hypot(g.x - px, g.z - pz) < s * 0.3 ? dt : -g.stuck; if (g.stuck > 2.5) { g.wp = (g.wp + 1) % g.ring.length; g.stuck = 0; }
+      }
+    }
   }
   _updateCops(P, dt) {
     const st = this.stars, cap = this.copCapBase[this.ctx.getLevel()] || 3, want = this.jail ? 0 : Math.min(cap, st ? st + (st >= 4 ? 1 : 0) : 0);
@@ -265,7 +310,7 @@ export class Crime {
     if (this.game.dead) return;
     if (this.driving) this._drive(P, dt);
     if (this.jail) this._updateJail(P, dt);
-    this._updateCops(P, dt);
+    this._updateCops(P, dt); this._updatePolice(P, dt); this._updateGuards(P, dt);
     // wanted HUD
     const st = this.stars; if (st !== this._st || this._flash) { this._st = st; this.wEl.style.display = st ? 'block' : 'none'; this.wEl.textContent = '★'.repeat(st) + '☆'.repeat(5 - st); }
     if (this.arrestM > 0.2) this.wEl.style.color = Math.floor(performance.now() / 150) % 2 ? '#4aa0ff' : '#ff4040'; else this.wEl.style.color = '#ff4040';
