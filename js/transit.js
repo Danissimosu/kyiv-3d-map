@@ -279,8 +279,8 @@ const OPENC = new THREE.Color(0x050505), SHUT = new THREE.Color(0x7fb2dd);
 Object.assign(Transit.prototype, {
   _ui() {
     const g = this.ctx.game; this.hudEl = el('div', '', '', document.body);
-    this.hudEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom));z-index:6;display:none;background:rgba(10,16,24,.82);color:#fff;font:600 13px/1.35 -apple-system,system-ui,sans-serif;padding:7px 12px;border-radius:12px;text-align:center;max-width:70vw;pointer-events:none';
-    this.bSkip = el('div', 'gbtn', '⏭', document.body); this.bSkip.title = 'Пропустить перегон'; this.bSkip.style.cssText = g.bInv.style.cssText + ';display:none'; this.bSkip.style.right = 'calc(290px + env(safe-area-inset-right))';
+    this.hudEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom));z-index:6;display:none;background:rgba(10,16,24,.6);color:#fff;font:600 ' + (this.mob ? 11 : 12) + 'px/1.3 -apple-system,system-ui,sans-serif;padding:4px 9px;border-radius:10px;text-align:center;max-width:' + (this.mob ? 46 : 60) + 'vw;pointer-events:none';
+    this.bSkip = el('div', 'gbtn', '⏭', document.body); this.bSkip.title = 'Пропустить перегон'; this.bSkip.style.cssText = g.bInv.style.cssText + ';display:none'; this.bSkip.style.right = 'calc(290px + env(safe-area-inset-right))'; this.bSkip.style.setProperty('--slot', 3); this.bSkip.classList.add('slot'); this.bSkip.style.opacity = '.75';
     tap(this.bSkip, () => this.skip());
     this.boardP = panel('boardP', '🚏 Посадка'); this.stopP = panel('stopP', '🚏 Остановка');
     g.transit = this; g.providers.unshift((P) => this.provider(P)); g.providers.push((P) => this.stopProvider(P));
@@ -343,7 +343,7 @@ Object.assign(Transit.prototype, {
   },
   _announce(v, first) {
     const pat = v.pat, r = this.ride; if (!r) return; const k = v.moving ? v.seg : v.dw;
-    if (v.moving && r.ann !== v.seg + 1) { r.ann = v.seg + 1; const nm = this.stops[pat.si[v.seg + 1]].name; toast(v.seg + 1 === pat.n - 1 ? `Наступна зупинка: ${nm} (кінцева)` : `Наступна зупинка: ${nm}`, 3600); }
+    if (v.moving && r.ann !== v.seg + 1) { r.ann = v.seg + 1; const nm = this.stops[pat.si[v.seg + 1]].name; toast(v.seg + 1 === pat.n - 1 ? `Наступна зупинка: ${nm} (кінцева)` : `Наступна зупинка: ${nm}`, 2800); }
     else if (!v.moving && k >= 1 && r.arr !== k) { r.arr = k; toast(k === pat.n - 1 ? `Кінцева зупинка: ${this.stops[pat.si[k]].name}. Просимо вийти` : `🚏 ${this.stops[pat.si[k]].name}`, 3200); }
     else if (first && !v.moving && k < pat.n - 1 && r.ann !== k + 1) { r.ann = k + 1; toast(`Наступна зупинка: ${this.stops[pat.si[k + 1]].name}`, 3600); }
   },

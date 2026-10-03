@@ -61,6 +61,33 @@
   #bClose { display: none; position: fixed; right: calc(14px + var(--sar)); top: calc(14px + var(--sat)); z-index: 8; pointer-events: auto; }
   #rot { display: none; position: fixed; inset: 0; z-index: 20; background: #0b1118; align-items: center; justify-content: center; font-size: 15px; }
   #bigtip { top: calc(10px + var(--sat)); }
+
+  /* ---- HUD declutter (keep the centre of the screen clear) ---- */
+  #hud { background: rgba(12,18,26,.4); font-size: 11px; line-height: 1.35; padding: 4px 8px; min-width: 0; opacity: .88; }
+  #help { background: rgba(12,18,26,.38); font-size: 11px; opacity: .85; }
+  #mini { background: rgba(12,18,26,.45); }
+  #hudi { display: none; }
+  body.touch #hud { display: flex; align-items: flex-start; gap: 6px; font-size: 10px; padding: 2px 4px 2px 7px; border-radius: 10px; background: rgba(12,18,26,.34); max-width: 62vw; }
+  body.touch #hudi { display: inline-flex; pointer-events: auto; touch-action: manipulation; flex: none; width: 18px; height: 18px; border-radius: 9px; background: rgba(255,255,255,.22); align-items: center; justify-content: center; font: italic 700 11px Georgia, serif; }
+  body.touch #hud.open { background: rgba(12,18,26,.5); z-index: 9; }
+  body.touch #minicv { width: 96px; height: 96px; }
+  body.touch #mini { background: rgba(12,18,26,.35); padding: 3px; opacity: .92; }
+  @media (orientation: portrait) { body.touch #minicv { width: 76px; height: 76px; } }
+  body.touch .hl { left: calc(10px + var(--sal)) !important; transform: none !important; font-size: 11px !important; font-weight: 600 !important; padding: 2px 8px !important; max-width: 56vw; overflow: hidden; text-overflow: ellipsis; opacity: .88; }
+  body.touch #doorhint { left: calc(10px + var(--sal)); transform: none; top: calc(54px + var(--sat)); font-size: 11px; padding: 2px 9px; background: rgba(20,60,40,.6); border-width: 0; max-width: 56vw; }
+  #doorhint { background: rgba(20,60,40,.6); font-size: 14px; padding: 4px 12px; }
+  body.touch .tb { width: 48px; height: 48px; font-size: 10px; background: rgba(12,18,26,.34); border-color: rgba(255,255,255,.35); }
+  body.touch #bJump { width: 60px; height: 60px; font-size: 12px; right: calc(20px + var(--sar)); }
+  body.touch #bRun { right: calc(92px + var(--sar)); bottom: calc(34px + var(--sab)); }
+  body.touch #bFly { right: calc(20px + var(--sar)); bottom: calc(110px + var(--sab)); }
+  body.touch #bMap { right: calc(20px + var(--sar)); bottom: calc(166px + var(--sab)); }
+  body.touch #bMore { right: calc(76px + var(--sar)); bottom: calc(110px + var(--sab)); width: 40px; height: 40px; }
+  body.touch #bShade { right: calc(124px + var(--sar)); bottom: calc(110px + var(--sab)); width: 40px; height: 40px; }
+  @media (orientation: portrait) {
+    body.touch .gbtn.slot { right: calc(12px + var(--sar)) !important; top: calc(96px + var(--sat) + var(--slot) * 46px) !important; }
+    body.touch .wst { right: auto !important; left: calc(10px + var(--sal)) !important; top: calc(120px + var(--sat)) !important; }
+  }
+  body.touch #bClose { width: 44px; height: 44px; }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
@@ -83,7 +110,7 @@
 </div>
 <div class="tb" id="bClose">✕</div>
 <div id="doorhint"></div>
-<div id="hud" class="panel"></div>
+<div id="hud" class="panel"><span id="hudtxt"></span><b id="hudi">i</b></div>
 <div id="help" class="panel"></div>
 <div id="mini" class="panel"><canvas id="minicv" width="200" height="200"></canvas></div>
 <div id="bigtip" class="panel">Карта: клик — телепорт · M / Esc — закрыть</div>

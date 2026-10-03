@@ -14,9 +14,10 @@ style.textContent = `
 .gp .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.gp .cell{aspect-ratio:1;background:rgba(255,255,255,.12);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:26px;position:relative}
 .gp .cell small{font-size:10px;opacity:.8;text-align:center;line-height:1.1}.gp .cell i{position:absolute;right:5px;bottom:2px;font-size:12px;font-style:normal;font-weight:700}.gp .cell.sel{outline:3px solid #ffd966}
 #toasts{position:fixed;left:50%;top:calc(96px + env(safe-area-inset-top));transform:translateX(-50%);z-index:15;pointer-events:none;display:flex;flex-direction:column;gap:6px;align-items:center;width:90vw}
-#toasts div{background:rgba(10,16,24,.88);color:#fff;padding:8px 14px;border-radius:14px;font:600 14px -apple-system,system-ui,sans-serif;max-width:92vw;text-align:center;animation:tin .18s}
+body.touch #toasts{top:calc(36px + env(safe-area-inset-top))}body.touch #toasts div{font-size:12px;padding:3px 9px;max-width:70vw}
+#toasts div{background:rgba(10,16,24,.66);color:#fff;padding:5px 11px;border-radius:12px;font:600 13px -apple-system,system-ui,sans-serif;max-width:92vw;text-align:center;animation:tin .18s}
 @keyframes tin{from{opacity:0;transform:translateY(-6px)}to{opacity:1}}
-.gbtn{position:fixed;z-index:7;width:46px;height:46px;border-radius:50%;background:rgba(12,18,26,.62);border:2px solid rgba(255,255,255,.55);color:#fff;font-size:21px;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none}
+.gbtn{position:fixed;z-index:7;width:40px;height:40px;border-radius:50%;background:rgba(12,18,26,.4);border:2px solid rgba(255,255,255,.4);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none}
 .gbtn.on{background:rgba(255,217,102,.85);color:#111}
 `;
 document.head.appendChild(style);
@@ -26,7 +27,7 @@ export function tap(e, fn) { let t0 = 0; e.addEventListener('touchend', ev => { 
 let tbox = null;
 export function toast(msg, ms = 2400) {
   if (!tbox) tbox = el('div', '', '', document.body), tbox.id = 'toasts';
-  const d = el('div', '', msg, tbox); while (tbox.children.length > 3) tbox.firstChild.remove();
+  const d = el('div', '', msg, tbox); while (tbox.children.length > 2) tbox.firstChild.remove();
   setTimeout(() => d.remove(), ms);
 }
 export function panel(id, title) {

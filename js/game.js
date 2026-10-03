@@ -83,16 +83,16 @@ export class Game {
   // ---------------------------------------------------------------- UI
   _ui() {
     const { IS_TOUCH } = this.ctx; this.sv = el('div', '', '', document.body);
-    this.sv.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(8px + env(safe-area-inset-top));z-index:6;display:flex;gap:8px;align-items:center;padding:3px 9px;background:rgba(12,18,26,.62);border-radius:12px;color:#fff;font:600 12px -apple-system,system-ui,sans-serif;pointer-events:none;font-variant-numeric:tabular-nums';
-    const bar = (ic, c) => { const w = el('span', '', `<span>${ic}</span><span style="display:inline-block;width:${IS_TOUCH ? 40 : 56}px;height:7px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-left:3px"><i style="display:block;height:100%;width:100%;background:${c}"></i></span>`, this.sv); return w.querySelector('i'); };
+    this.sv.style.cssText = (IS_TOUCH ? 'font-size:11px;' : '') + 'position:fixed;left:50%;transform:translateX(-50%);top:calc(8px + env(safe-area-inset-top));z-index:6;display:flex;gap:8px;align-items:center;padding:3px 9px;background:rgba(12,18,26,.62);border-radius:12px;color:#fff;font:600 12px -apple-system,system-ui,sans-serif;pointer-events:none;font-variant-numeric:tabular-nums';
+    const bar = (ic, c) => { const w = el('span', '', `<span>${ic}</span><span style="display:inline-block;width:${IS_TOUCH ? 30 : 50}px;height:7px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-left:3px"><i style="display:block;height:100%;width:100%;background:${c}"></i></span>`, this.sv); return w.querySelector('i'); };
     this.bHp = bar('❤', '#e74c3c'); this.bFood = bar('🍖', '#e6a23c'); this.bWater = bar('💧', '#3fa7f0'); this.moneyEl = el('span', '', '', this.sv);
     this.flashEl = el('div', '', '', document.body); this.flashEl.style.cssText = 'position:fixed;inset:0;z-index:5;pointer-events:none;background:radial-gradient(transparent 40%,rgba(200,0,0,.55));opacity:0;transition:opacity .25s';
-    this.shiftEl = el('div', '', '', document.body); this.shiftEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(36px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(20,60,40,.85);color:#fff;font:600 13px system-ui;padding:4px 12px;border-radius:12px;pointer-events:none';
-    this.actEl = el('div', '', '', document.body); this.actEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:58%;z-index:6;display:none;background:rgba(255,217,102,.92);color:#111;font:700 16px system-ui;padding:8px 16px;border-radius:20px;white-space:nowrap';
+    this.shiftEl = el('div', '', '', document.body); this.shiftEl.className = 'hl'; this.shiftEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(' + (IS_TOUCH ? 98 : 36) + 'px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(20,60,40,.85);color:#fff;font:600 13px system-ui;padding:4px 12px;border-radius:12px;pointer-events:none';
+    this.actEl = el('div', '', '', document.body); this.actEl.className = 'hl'; this.actEl.style.cssText = IS_TOUCH ? 'position:fixed;top:calc(32px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(255,217,102,.7);color:#111;font:700 11px system-ui;padding:2px 8px;border-radius:10px;white-space:nowrap;pointer-events:none' : 'position:fixed;left:50%;transform:translateX(-50%);top:calc(52px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(255,217,102,.72);color:#111;font:700 13px system-ui;padding:4px 12px;border-radius:14px;white-space:nowrap;pointer-events:none';
     // buttons
-    const mkBtn = (txt, right, fn, extra = '') => { const b = el('div', 'gbtn', txt, document.body); b.style.cssText = `right:calc(${right}px + env(safe-area-inset-right));top:calc(8px + env(safe-area-inset-top));${extra}`; b.style.display = IS_TOUCH ? 'flex' : 'none'; tap(b, fn); return b; };
+    const mkBtn = (txt, right, fn, extra = '') => { const b = el('div', 'gbtn', txt, document.body); b.style.cssText = `right:calc(${right}px + env(safe-area-inset-right));top:calc(8px + env(safe-area-inset-top));--slot:${Math.round((right - 134) / 52)};${extra}`; b.classList.add('slot'); b.style.display = IS_TOUCH ? 'flex' : 'none'; tap(b, fn); return b; };
     this.bInv = mkBtn('🎒', 134, () => this.invP.toggle()); this.bPhone = mkBtn('📱', 186, () => this.phoneP.toggle());
-    this.bAct = el('div', 'gbtn', 'E', document.body); this.bAct.style.cssText = 'right:calc(182px + env(safe-area-inset-right));bottom:calc(40px + env(safe-area-inset-bottom));width:58px;height:58px;font-size:22px;font-weight:700;background:rgba(255,217,102,.9);color:#111;display:none';
+    this.bAct = el('div', 'gbtn', 'E', document.body); this.bAct.style.cssText = 'right:calc(24px + env(safe-area-inset-right));bottom:calc(226px + env(safe-area-inset-bottom));width:44px;height:44px;font-size:17px;font-weight:700;background:rgba(255,217,102,.6);border-color:rgba(255,255,255,.5);color:#111;display:none';
     tap(this.bAct, () => this.doAction());
     // panels
     this.invP = panel('invP', 'Рюкзак'); this.invP.onOpen = () => this._drawInv(); this.invSel = -1;
@@ -218,8 +218,10 @@ export class Game {
     // action providers (throttled)
     if (((this.fr = (this.fr || 0) + 1) % 4) === 0) {
       let a = this._poiAction(); if (!a) for (const f of this.providers) { a = f(P, this); if (a) break; }
-      this.act = a; this.actEl.style.display = a && !this.ctx.IS_TOUCH ? 'block' : 'none'; if (a) this.actEl.textContent = (this.ctx.IS_TOUCH ? '' : 'E — ') + a.label;
-      this.bAct.style.display = a && this.ctx.IS_TOUCH ? 'flex' : 'none'; if (a && this.ctx.IS_TOUCH) { this.bAct.title = a.label; this.actEl.style.display = 'block'; this.actEl.style.top = '62%'; }
+      this.act = a; const lab = a ? a.label : ''; if (lab !== this._actLab) { this._actLab = lab; this._actT = this.t; }
+      const showPill = a && this.t - this._actT < (this.ctx.IS_TOUCH ? 4 : 6);   // compact hint pill, auto-hides after a few seconds
+      this.actEl.style.display = showPill ? 'block' : 'none'; if (a) this.actEl.textContent = (this.ctx.IS_TOUCH ? '' : 'E — ') + a.label;
+      this.bAct.style.display = a && this.ctx.IS_TOUCH ? 'flex' : 'none'; if (a && this.ctx.IS_TOUCH) this.bAct.title = a.label;
       this.refresh();
     }
   }

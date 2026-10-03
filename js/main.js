@@ -334,13 +334,16 @@ async function main() {
   }
   const simulate = (n, dt = 1 / 30) => { for (let i = 0; i < n; i++) { world.update(P, dt, 40); world.interiors.update(P, dt, 1e9); physics(dt); } P.eye = P.y + EYE; camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0); sky.position.copy(camera.position); };
   const renderNow = () => { camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0); sky.position.copy(camera.position); renderer.render(scene, camera); doorHint(); };
+  let hudOpen = qs.get('hud') === '1'; $('hud').classList.toggle('open', hudOpen);
+  { const hi = $('hudi'), tg = e => { e.preventDefault(); e.stopPropagation(); hudOpen = !hudOpen; $('hud').classList.toggle('open', hudOpen); updateHud(); }; hi.addEventListener('touchend', tg, { passive: false }); hi.addEventListener('click', tg); hi.addEventListener('touchstart', e => e.stopPropagation(), { passive: true }); }
   function updateHud() {
     const [lat, lon] = xz2ll(P.x, P.z);
-    $('hud').innerHTML = `<b>${P.fly ? 'ПОЛЁТ' : P.inWater ? 'ВОДА' : 'ХОДЬБА'}</b> · ${fps.toFixed(0)} fps · Q${qLevel}<br>
+    const full = `<b>${P.fly ? 'ПОЛЁТ' : P.inWater ? 'ВОДА' : 'ХОДЬБА'}</b> · ${fps.toFixed(0)} fps · Q${qLevel}<br>
       X(восток) ${P.x.toFixed(0)} м · Z(юг) ${P.z.toFixed(0)} м<br>
       ${lat.toFixed(5)}°N ${lon.toFixed(5)}°E<br>
       высота над ур. моря: ${P.y.toFixed(1)} м<br>
       тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}<br>${transit.hudLine()}`;
+    $('hudtxt').innerHTML = IS_TOUCH && !hudOpen ? `${fps.toFixed(0)} fps · Q${qLevel}` : full;
   }
   window.__kyiv = { city, pois, game, crime, transit, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
   requestAnimationFrame(frame);

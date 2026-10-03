@@ -75,7 +75,7 @@ export class PoiLayer {
     const g = new THREE.CylinderGeometry(1.3, 1.3, 140, 14, 1, true); g.translate(0, 70, 0);
     this.beacon = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffd966, transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
     this.beacon.visible = false; this.beacon.frustumCulled = false; this.scene.add(this.beacon);
-    this.trackEl = el('div', '', '', document.body); this.trackEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(70px + env(safe-area-inset-top));z-index:6;background:rgba(10,16,24,.7);color:#fff;font:600 13px -apple-system,system-ui,sans-serif;padding:4px 10px;border-radius:12px;display:none;pointer-events:none;white-space:nowrap';
+    this.trackEl = el('div', '', '', document.body); this.trackEl.className = 'hl'; this.trackEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(' + (this.ctx.IS_TOUCH ? 76 : 70) + 'px + env(safe-area-inset-top));z-index:6;background:rgba(10,16,24,.7);color:#fff;font:600 13px -apple-system,system-ui,sans-serif;padding:4px 10px;border-radius:12px;display:none;pointer-events:none;white-space:nowrap';
   }
   setTrack(poi) {
     this.track = poi; if (!poi) { this.beacon.visible = false; this.trackEl.style.display = 'none'; return; }

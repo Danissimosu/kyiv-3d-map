@@ -23,10 +23,10 @@ export class Crime {
   // ---------------------------------------------------------------- HUD
   _hud() {
     const T = this.ctx.IS_TOUCH;
-    this.wEl = el('div', '', '', document.body); this.wEl.style.cssText = `position:fixed;right:calc(${T ? 134 : 14}px + env(safe-area-inset-right));top:calc(${T ? 60 : 14}px + env(safe-area-inset-top));z-index:6;font:700 20px system-ui;letter-spacing:2px;text-shadow:0 0 4px #000;display:none;pointer-events:none;color:#ff4040`;
+    this.wEl = el('div', 'wst', '', document.body); this.wEl.style.cssText = `position:fixed;right:calc(${T ? 134 : 14}px + env(safe-area-inset-right));top:calc(${T ? 60 : 14}px + env(safe-area-inset-top));z-index:6;font:700 ${T ? 14 : 20}px system-ui;letter-spacing:1px;text-shadow:0 0 4px #000;display:none;pointer-events:none;color:#ff4040`;
     this.jEl = el('div', '', '', document.body); this.jEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(36px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(40,40,40,.88);color:#fff;font:600 14px system-ui;padding:5px 14px;border-radius:12px;pointer-events:none;white-space:nowrap;border:1px solid #888';
     this.fade = el('div', '', '', document.body); this.fade.style.cssText = 'position:fixed;inset:0;background:#000;z-index:14;opacity:0;pointer-events:none;transition:opacity .5s;display:flex;align-items:center;justify-content:center;color:#fff;font:600 20px system-ui;text-align:center;padding:20px';
-    if (T) { const b = el('div', 'gbtn', '👊', document.body); b.style.cssText = 'right:calc(238px + env(safe-area-inset-right));top:calc(8px + env(safe-area-inset-top));'; tap(b, () => this.punch()); }
+    if (T) { const b = el('div', 'gbtn', '👊', document.body); b.style.cssText = 'right:calc(238px + env(safe-area-inset-right));top:calc(8px + env(safe-area-inset-top));--slot:2'; b.classList.add('slot'); tap(b, () => this.punch()); }
   }
   addHeat(h, why) { const o = this.stars; this.heat = Math.min(5, this.heat + h); this.unseen = 0; if (this.stars > o) toast(`★ Розыск: ${this.stars}${why ? ' — ' + why : ''}`); }
   witnessed(r = 28) { const P = this.P; if (this.cops.some(c => Math.hypot(c.x - P.x, c.z - P.z) < 45)) return true; for (const a of this.city.peds) if (!a.inside && a.state === 'walk' && Math.hypot(a.x - P.x, a.z - P.z) < r) return true; return false; }
