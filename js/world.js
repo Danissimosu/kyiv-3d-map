@@ -223,7 +223,7 @@ export class World {
   buildTile(ix, iz, key, d, splat) {
     const T = this.TILE, ox = ix * T, oz = iz * T;
     const group = new THREE.Group(); group.name = 'tile' + key;
-    const t = { ix, iz, key, group, h: Float32Array.from(d.h), cellKeys: new Set(), waters: [], ox, oz, alive: true, plans: [] };
+    const t = { ix, iz, key, group, h: Float32Array.from(d.h), cellKeys: new Set(), waters: [], ox, oz, alive: true, plans: [], roads: d.r || [], blds: d.b || [] };
     this.tiles.set(key, t);
     const add = (geo, mat, o = {}) => { const m = new THREE.Mesh(geo, mat); m.castShadow = !!o.cast; m.receiveShadow = o.receive !== false; if (o.order) m.renderOrder = o.order; m.matrixAutoUpdate = false; group.add(m); return m; };
     // terrain
@@ -287,6 +287,7 @@ diffuseColor.rgb *= col * 1.25;`);
     // ---- interior planning: door on the street-facing wall (nearest road), inner wall offset, levels
     const roadSegs = []; for (const r of roadsRaw) { if (r.b || typeof r.c !== 'number' || r.c < 1) continue; const p = r.p; for (let i = 0; i + 3 < p.length; i += 2) roadSegs.push(p[i], p[i + 1], p[i + 2], p[i + 3]); }
     const others = list.map(b => { const r = orientRing(b.p, true); let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let i = 0; i < r.length; i += 2) { x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]); z0 = Math.min(z0, r[i + 1]); z1 = Math.max(z1, r[i + 1]); } return { b: [x0, z0, x1, z1], ring: r }; });
+    const pm = this.poiMap && this.poiMap.get(key); if (pm) for (const [pbi, poi] of pm) { const bb = list[pbi]; if (bb && poi.brand !== undefined) bb.c = poi.brand; }
     const planOf = new Map(); const SKIPK = /^(roof|carport|constructio|ruins|bunker|greenhouse|cabin|hut|kiosk|toilets|static_cara|container|silo|tank|tower|chimney|bridge)/;
     for (let bi = 0; bi < list.length; bi++) {
       const b = list[bi]; if (b.m || SKIPK.test(b.k || '')) continue;
@@ -295,6 +296,7 @@ diffuseColor.rgb *= col * 1.25;`);
         const pl = planBuilding(ring, holes, b.g, eave, b.f, roadSegs, others, bi, (x, z) => this.heightAt(x, z)); if (!pl) continue;
         const o = others[bi]; pl.kind = b.k || "yes"; pl.bi = bi; pl.bid = key + ':' + bi; pl.tile = t; pl.key = key; pl.cx = (o.b[0] + o.b[2]) / 2; pl.cz = (o.b[1] + o.b[3]) / 2; pl.radius = Math.hypot(o.b[2] - o.b[0], o.b[3] - o.b[1]) / 2;
         pl.seed = Math.floor(hash(ring[0] * 13.1 + ring[1] * 7.7) * 1e6) + 1; pl.bb = o.b;
+        if (pm && pm.has(bi)) { pl.poi = pm.get(bi); pl.poi.pl = pl; pl.poi.built = true; }
         const d = pl.door, i = d.edge, j = (i + 1) % (ring.length / 2), ir = pl.inner.ring;
         const pt = (r, f) => [r[2 * i] + (r[2 * j] - r[2 * i]) * f, r[2 * i + 1] + (r[2 * j + 1] - r[2 * i + 1]) * f];
         pl.doorOut0 = pt(ring, d.f0); pl.doorOut1 = pt(ring, d.f1); pl.doorIn0 = pt(ir, d.f0); pl.doorIn1 = pt(ir, d.f1); pl.doorIn = pt(ir, 0.5);

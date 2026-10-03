@@ -1,3 +1,8 @@
+import { City } from './city.js';
+import { PoiLayer } from './pois.js';
+import { Game } from './game.js';
+import { Crime } from './crime.js';
+import { UI } from './ui.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { World } from './world.js';
@@ -68,12 +73,13 @@ async function main() {
   scene.add(sun, sun.target);
 
   const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { base: BASE, shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
+  const city = new City(world, scene, manifest, { mobile: MOB }); city.enabled = qs.get('city') !== '0'; city.setLevel(qLevel);
 
   // ---- player
   const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, fly: false, grounded: false, eye: 0, inWater: false, wl: null };
   const keys = {};
   const T = { jx: 0, jy: 0, jump: false, run: false, down: false };
-  const teleport = (x, z, yaw, pitch) => { P.x = x; P.z = z; P.vx = P.vz = P.vy = 0; if (yaw !== undefined) P.yaw = yaw; if (pitch !== undefined) P.pitch = pitch;
+  const teleport = (x, z, yaw, pitch) => { if (UI.jail && !UI.jailBypass) return; P.x = x; P.z = z; P.vx = P.vz = P.vy = 0; if (yaw !== undefined) P.yaw = yaw; if (pitch !== undefined) P.pitch = pitch;
     const gy = world.heightAt(x, z); P.y = Math.max(world.groundAt(x, z, gy + 300), gy) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; P.px0 = x; P.pz0 = z;
     P.wait = !world.tiles.get(Math.floor(x / 500) + '_' + Math.floor(z / 500))?.h; };   // far teleport: hold the player until the tile under them has loaded
   let started = false, locked = false, spawned = false;
@@ -91,6 +97,14 @@ async function main() {
     spawned = true;
   };
 
+  // ---- places / game layer
+  const pois = new PoiLayer(world, scene, { P, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d), noTeleport: false,
+    landmarks: LANDMARKS.map(l => ({ name: l[0], go: () => { const [x, z] = lmXZ(l); teleport(x, z); } })) });
+  await pois.load(BASE);
+  const game = new Game({ P, world, scene, pois, qs, IS_TOUCH, START, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), paintMap: (...a) => paintMap(...a) });
+  const crime = new Crime({ P, world, scene, city, pois, game, qs, IS_TOUCH, canvas, keys, T, START, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
+  UI.onModal = n => { if (!n && !IS_TOUCH && started && !game.dead) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} };
+
   let manualShadow = manualShadow0;
   function setShadows(on) { if (sun.castShadow === on) return; sun.castShadow = on; scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); $('bShade').classList.toggle('on', on); }
   function toggleShadows() { manualShadow = true; setShadows(!sun.castShadow); }
@@ -99,7 +113,7 @@ async function main() {
     qLevel = Math.max(0, Math.min(3, l)); renderer.setPixelRatio(prFor(qLevel)); renderer.setSize(innerWidth, innerHeight, false);
     world.detailR = DETAILR[qLevel]; world.interiors.activateR = ACTR[qLevel]; world.interiors.disposeR = ACTR[qLevel] + 25;
     if (!manualShadow) setShadows(qLevel >= 2);
-    gov.lastChange = performance.now(); gov.good = 0;
+    city.setLevel(qLevel); gov.lastChange = performance.now(); gov.good = 0;
   }
   function governor(raw) {
     if (!GOV || raw > 0.5 || !spawned) return; gov.t += raw; gov.n++;
@@ -116,12 +130,12 @@ async function main() {
     if (e.code === 'KeyH') $('help').style.display = $('help').style.display === 'none' ? '' : 'none';
     if (e.code === 'KeyM') toggleMap();
     if (e.code === 'KeyG') toggleShadows();
-    if (e.code.startsWith('Digit')) { const i = +e.code.slice(5) - 1; if (LANDMARKS[i]) { const [x, z] = lmXZ(LANDMARKS[i]); teleport(x, z); } }
+    if (e.code.startsWith('Digit') && !UI.modal) { const i = +e.code.slice(5) - 1; if (LANDMARKS[i]) { const [x, z] = lmXZ(LANDMARKS[i]); teleport(x, z); } }
     if (e.code === 'Space') e.preventDefault();
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
-  document.addEventListener('pointerlockchange', () => { if (IS_TOUCH) return; locked = document.pointerLockElement === canvas; if (!locked && started) $('overlay').style.display = 'flex', $('go').style.display = 'block', $('msg').textContent = 'Пауза'; });
+  document.addEventListener('pointerlockchange', () => { if (IS_TOUCH) return; locked = document.pointerLockElement === canvas; if (!locked && started && !UI.modal && !game.dead) $('overlay').style.display = 'flex', $('go').style.display = 'block', $('msg').textContent = 'Пауза'; });
   document.addEventListener('mousemove', e => {
     if (!locked) return;
     P.yaw -= e.movementX * 0.0022; P.pitch = Math.max(-1.5, Math.min(1.5, P.pitch - e.movementY * 0.0022));
@@ -151,7 +165,7 @@ async function main() {
     }
   }
   function drawMini() {
-    const W = 200; paintMap(mctx, W, W, P.x, P.z, W / 500, true);
+    const W = 200; paintMap(mctx, W, W, P.x, P.z, W / 500, true); pois.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false);
     mctx.save(); mctx.translate(W / 2, W / 2); mctx.rotate(-P.yaw);   // arrow: yaw 0 = north (up)
     mctx.fillStyle = '#e33'; mctx.strokeStyle = '#fff'; mctx.lineWidth = 2; mctx.beginPath(); mctx.moveTo(0, -9); mctx.lineTo(6, 7); mctx.lineTo(0, 3); mctx.lineTo(-6, 7); mctx.closePath(); mctx.fill(); mctx.stroke(); mctx.restore();
     mctx.fillStyle = '#000'; mctx.font = 'bold 11px sans-serif'; mctx.fillText('С', 94, 12);
@@ -163,7 +177,7 @@ async function main() {
     const W = bigcv.width, H = bigcv.height; BV.w = W; BV.h = H;
     BV.kmin = Math.min(W / (manifest.bounds[2] - manifest.bounds[0]), H / (manifest.bounds[3] - manifest.bounds[1])) * 0.95;
     BV.k = Math.max(BV.kmin, Math.min(BV.k, 0.6));
-    paintMap(bctx, W, H, BV.cx, BV.cz, BV.k, BV.k > 0.03);
+    paintMap(bctx, W, H, BV.cx, BV.cz, BV.k, BV.k > 0.03); pois.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true);
     const toS = (x, z) => [W / 2 + (x - BV.cx) * BV.k, H / 2 + (z - BV.cz) * BV.k];
     bctx.strokeStyle = 'rgba(255,255,255,.55)'; bctx.lineWidth = 1.5; bctx.beginPath(); manifest.city.forEach((p, i) => { const [sx, sy] = toS(p[0], p[1]); i ? bctx.lineTo(sx, sy) : bctx.moveTo(sx, sy); }); bctx.closePath(); bctx.stroke();
     bctx.font = '13px sans-serif'; LANDMARKS.forEach((l, i) => { const [x, z] = lmXZ(l), [sx, sy] = toS(x, z); bctx.fillStyle = '#c22'; bctx.beginPath(); bctx.arc(sx, sy, 4, 0, 7); bctx.fill(); bctx.lineWidth = 3; bctx.strokeStyle = 'rgba(255,255,255,.85)'; bctx.strokeText(l[0], sx + 7, sy + 4); bctx.fillStyle = '#012'; bctx.fillText(l[0], sx + 7, sy + 4); });
@@ -191,6 +205,7 @@ async function main() {
   $('help').innerHTML = `<b>WASD</b> — ходьба · <b>мышь</b> — взгляд · <b>Shift</b> — бег · <b>Пробел</b> — прыжок<br>
     <b>F</b> — полёт/ходьба (в полёте: Пробел вверх, Ctrl/C вниз, Shift — ускорение)<br>
     <b>1–9</b> — телепорт к местам · <b>M</b> — карта (клик = телепорт) · <b>R</b> — на вокзал (старт) · <b>G</b> — тени · <b>H</b> — скрыть подсказку<br>
+    <b>E</b> — действие (купить / работа) · <b>I</b> — рюкзак · <b>T</b> — смартфон · <b>P</b> — места (магазины, работа, СИЗО)<br>
     <span style="opacity:.7">Esc — пауза</span>`;
 
   // ---- touch controls
@@ -223,7 +238,7 @@ async function main() {
     const mk = (txt, fn) => { const b = document.createElement('div'); b.textContent = txt; b.style.cssText = 'padding:14px 12px;margin:6px 0;background:rgba(255,255,255,.12);border-radius:10px;font-size:16px'; b.addEventListener('click', () => { list.style.display = 'none'; fn(); }); list.appendChild(b); };
     LANDMARKS.forEach(l => mk(l[0], () => { const [x, z] = lmXZ(l); teleport(x, z); }));
     mk('Закрыть', () => {}); document.body.appendChild(list);
-    tstart($('bMore'), () => { list.style.display = 'block'; });
+    tstart($('bMore'), () => { pois.panel.open(); });
     $('bFly').classList.toggle('on', P.fly);
   }
   function ensureStart() { if (spawned && !started) { started = true; $('overlay').style.display = 'none'; } }
@@ -273,7 +288,7 @@ async function main() {
     governor(raw); frames++; tacc += raw; if (tacc > 0.5) { fps = frames / tacc; frames = 0; tacc = 0; updateHud(); }
     const before = world.tiles.size;
     if (spawned) world.update(P, dt, MOB ? 3 : 6);
-    if (spawned) world.interiors.update(P, dt, MOB ? 3 : 5);
+    if (spawned) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); pois.update(P, dt); game.update(P, dt); crime.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
       const sx = parseFloat(qs.get('x') ?? START.x), sz = parseFloat(qs.get('z') ?? START.z);
@@ -284,7 +299,7 @@ async function main() {
       if (have >= need.length) { spawn(); updateHud(); $('msg').textContent = 'Готово'; $('go').style.display = 'block'; $('bar').style.display = 'none'; if (qs.has('autostart')) { started = true; $('overlay').style.display = 'none'; } }
     } else if (started || qs.has('autostart') || true) {
       if (P.wait) { const tt = world.tiles.get(Math.floor(P.x / 500) + '_' + Math.floor(P.z / 500)); if (tt && tt.h) { P.wait = false; const g0 = world.heightAt(P.x, P.z); P.y = Math.max(world.groundAt(P.x, P.z, g0 + 300), g0) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; } }
-      else if (started && !mapOpen) physics(dt);
+      else if (started && !mapOpen && !UI.modal && !game.dead && !crime.driving) physics(dt);
     }
     const bob = 0; const targetEye = P.y + EYE; P.eye += (targetEye - P.eye) * Math.min(1, dt * (P.grounded ? 18 : 40)); if (P.fly) P.eye = targetEye;
     camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0);
@@ -317,9 +332,9 @@ async function main() {
       X(восток) ${P.x.toFixed(0)} м · Z(юг) ${P.z.toFixed(0)} м<br>
       ${lat.toFixed(5)}°N ${lon.toFixed(5)}°E<br>
       высота над ур. моря: ${P.y.toFixed(1)} м<br>
-      тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}`;
+      тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}`;
   }
-  window.__kyiv = { quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
+  window.__kyiv = { city, pois, game, crime, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
   requestAnimationFrame(frame);
 }
 main().catch(e => { console.error(e); const m = document.getElementById('msg'); if (m) m.textContent = 'Ошибка: ' + e.message; });

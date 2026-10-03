@@ -100,6 +100,16 @@ class IB {
 function vq(B, ax, az, bx, bz, y0, y1, s0, s1, yb, sh, rect, c, ct) {
   B.quad([[ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az]], [[s0 / 3, (y0 - yb) / sh], [s1 / 3, (y0 - yb) / sh], [s1 / 3, (y1 - yb) / sh], [s0 / 3, (y1 - yb) / sh]], rect, c, ct ? [c, c, ct, ct] : null);
 }
+
+// box in the local frame of a doorway: a along the wall axis (ex,ez), b along the normal (nx,nz); five quads (no bottom)
+function frameBox(B, rect, c, mx, mz, ex, ez, nx, nz, a0, a1, b0, b1, y0, y1) {
+  const P = (a, b, y) => [mx + ex * a + nx * b, y, mz + ez * a + nz * b], uv = [[0, 0], [1, 0], [1, 1.6], [0, 1.6]];
+  B.quad([P(a0, b1, y0), P(a1, b1, y0), P(a1, b1, y1), P(a0, b1, y1)], uv, rect, c);
+  B.quad([P(a1, b0, y0), P(a0, b0, y0), P(a0, b0, y1), P(a1, b0, y1)], uv, rect, c);
+  B.quad([P(a0, b0, y0), P(a0, b1, y0), P(a0, b1, y1), P(a0, b0, y1)], uv, rect, c);
+  B.quad([P(a1, b1, y0), P(a1, b0, y0), P(a1, b0, y1), P(a1, b1, y1)], uv, rect, c);
+  B.quad([P(a0, b1, y1), P(a1, b1, y1), P(a1, b0, y1), P(a0, b0, y1)], uv, rect, c);
+}
 function horiz(B, ring, holes, y, rect, c, scale = 2) {
   const tr = triangulate(ring, holes);
   const base = B.n;
@@ -161,6 +171,36 @@ export class InteriorManager {
       for (let k = lo; k <= hi; k++) if (!I.levels.has(k)) { if (performance.now() - t0 > budgetMs) break; this.buildLevel(I, k); }
       for (const k of [...I.levels.keys()]) if (k < lo - 1 || k > hi + 1) this.disposeLevel(I, k);
     }
+    this.animateDoors(P, dt);
+  }
+
+  // door leaves: pose all (force) or only the ones whose angle changed
+  _poseDoors(L, force) {
+    const M4 = new THREE.Matrix4(), q = new THREE.Quaternion(), ps = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0); let any = false;
+    L.doors.forEach((d, i) => {
+      if (!d.dirty && !force) return; d.dirty = false; any = true;
+      const th = d.th0 + d.sgn * d.a * 1.75, dx = Math.cos(th), dz = -Math.sin(th);
+      q.setFromAxisAngle(up, th); ps.set(d.hx + dx * d.lw / 2, L.Fk + 0.02, d.hz + dz * d.lw / 2); sc.set(d.lw, 2.05, 0.045); M4.compose(ps, q, sc); L.dmesh.setMatrixAt(2 * i, M4);
+      ps.set(d.hx + dx * (d.lw - 0.12), L.Fk + 0.95, d.hz + dz * (d.lw - 0.12)); sc.set(0.14, 0.035, 0.13); M4.compose(ps, q, sc); L.dmesh.setMatrixAt(2 * i + 1, M4);
+    });
+    if (any) L.dmesh.instanceMatrix.needsUpdate = true;
+  }
+  animateDoors(P, dt) {
+    for (const [p, I] of this.active) {
+      if (Math.hypot(p.cx - P.x, p.cz - P.z) - p.radius > 25) continue;
+      for (const L of I.levels.values()) {
+        if (!L.dmesh) continue; let ch = false;
+        for (const d of L.doors) {
+          const dist = Math.hypot(P.x - d.mx, P.z - d.mz), near = dist < 2.4 && Math.abs(P.y - L.Fk - 0.9) < 2.4;
+          const tgt = near ? 1 : 0;
+          if (tgt && !d.tgt) { const s = (P.x - d.mx) * d.nx + (P.z - d.mz) * d.nz > 0 ? -1 : 1;   // swing away from the player
+            const cand = (sg) => { const th = d.th0 + sg * 1.75; return (Math.cos(th) * d.nx - Math.sin(th) * d.nz) * s; }; d.sgn = cand(1) > cand(-1) ? 1 : -1; }
+          d.tgt = tgt;
+          if (d.a !== tgt) { d.a += Math.sign(tgt - d.a) * Math.min(Math.abs(tgt - d.a), dt * 4.5); d.dirty = true; ch = true; }
+        }
+        if (ch) this._poseDoors(L, false);
+      }
+    }
   }
   forceBuild(P) {   // synchronous (tests / teleports)
     for (const p of this.plansNear(P.x, P.z, this.activateR)) if (!this.active.has(p) && !p.failed) { try { this.activate(p); } catch (e) { console.error(e); p.failed = true; } }
@@ -174,7 +214,7 @@ export class InteriorManager {
     if (p.tile.alive) this.world.setDoorLeaf(p, true);
     this.active.delete(p); this.stats.active = this.active.size;
   }
-  disposeLevel(I, k) { const L = I.levels.get(k); if (!L) return; this.world.removeOwner(L.owner); I.group.remove(L.mesh); L.mesh.geometry.dispose(); if (L.fmesh) { I.group.remove(L.fmesh); L.fmesh.geometry.dispose(); L.fmesh.dispose(); } I.levels.delete(k); }
+  disposeLevel(I, k) { const L = I.levels.get(k); if (!L) return; this.world.removeOwner(L.owner); I.group.remove(L.mesh); L.mesh.geometry.dispose(); if (L.dmesh) { I.group.remove(L.dmesh); L.dmesh.geometry.dispose(); L.dmesh.dispose(); } if (L.fmesh) { I.group.remove(L.fmesh); L.fmesh.geometry.dispose(); L.fmesh.dispose(); } I.levels.delete(k); }
 
   // ------------------------------------------------------------------ activation: shell + stairs + partition
   activate(p) {
@@ -285,9 +325,10 @@ export class InteriorManager {
     if (stair) { const e = [stair.c[0] - 0.6 * stair.eax + stair.bw / 2 * stair.ebx, stair.c[1] - 0.6 * stair.eaz + stair.bw / 2 * stair.ebz]; rooms[leafAt(e[0], e[1])].stair = true;
       const e2 = [stair.c[0] + (stair.A + 0.3) * stair.eax + stair.B / 2 * stair.ebx, stair.c[1] + (stair.A + 0.3) * stair.eaz + stair.B / 2 * stair.ebz]; rooms[leafAt(e2[0], e2[1])].stair = true; }
     I.rooms = rooms; I.leafAt = leafAt; I.toXZ = toXZ; I.uvOf = uvOf;
-    I.cat = classify(p.kind, hash01(p.seed * 0.37)); I.brand = [0.75 + 0.25 * hash01(p.seed + 1.1), 0.75 + 0.25 * hash01(p.seed + 2.3), 0.75 + 0.25 * hash01(p.seed + 3.7)];
+    I.cat = p.poi ? p.poi.theme : classify(p.kind, hash01(p.seed * 0.37)); I.brand = p.poi ? p.poi.brandRGB.map(c => 0.55 + 0.45 * c) : [0.75 + 0.25 * hash01(p.seed + 1.1), 0.75 + 0.25 * hash01(p.seed + 2.3), 0.75 + 0.25 * hash01(p.seed + 3.7)];
     // keep-clear spots for furniture (uv): door, doorways, stairs
     const clear = [[...uvOf(inPt[0], inPt[1]), 2.0]];
+    if (p.poi) { I.sp = [dIn[0] - d.nx * 2.7, dIn[1] - d.nz * 2.7]; clear.push([...uvOf(I.sp[0], I.sp[1]), 1.5]); }   // service point (counter / job desk) stays free
     for (const pc of pieces) if (pc.l) { const m = uvOf((pc.x1 + pc.x2) / 2, (pc.z1 + pc.z2) / 2); clear.push([m[0], m[1], 1.45]); }
     if (stair) for (let a = -1.6; a <= stair.A + 1.0; a += 0.8) for (let b = -1.0; b <= stair.B + 1.0; b += 0.8) { const c = uvOf(stair.c[0] + a * stair.eax + b * stair.ebx, stair.c[1] + a * stair.eaz + b * stair.ebz); clear.push([c[0], c[1], 0.95]); }
     I.clear = clear;
@@ -382,6 +423,7 @@ export class InteriorManager {
     W.addColliderOwner(owner, 'floors', { ring, holes: floorHoles.length ? floorHoles : null, y: Fk, b: [x0, z0, x1, z1], owner }, x0, z0, x1, z1);
     if (hasHoleCeil) { const h = I.holePoly; for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; vq(B, h[2 * i], h[2 * i + 1], h[2 * j], h[2 * j + 1], ceilY, ceilY + SLAB, 0, 1, Fk, sh, rects.dark, [0.8, 0.8, 0.8]); } }
     // ---- partition walls: each face takes the style of the room on that side
+    const doors = [];
     for (const pc of I.pieces) {
       const dx = pc.x2 - pc.x1, dz = pc.z2 - pc.z1, L = Math.hypot(dx, dz); if (L < 0.05) continue;
       const ex = dx / L, ez = dz / L, nx0 = -ez, nz0 = ex, nx = nx0 * 0.07, nz = nz0 * 0.07, y0 = pc.l ? Fk + 2.1 : Fk, y1 = ceilY;
@@ -392,6 +434,15 @@ export class InteriorManager {
       vq(B, c1[0], c1[1], c1[2], c1[3], y0, y1, 0, L, Fk, sh, ra, cA.map(c => c * 0.8), cA); vq(B, c2[0], c2[1], c2[2], c2[3], y0, y1, 0, L, Fk, sh, rb, cB.map(c => c * 0.8), cB);
       vq(B, c1[0], c1[1], c2[0], c2[1], y0, y1, 0, 0.14, Fk, sh, rects.plaster, wd); vq(B, c1[2], c1[3], c2[2], c2[3], y0, y1, 0, 0.14, Fk, sh, rects.plaster, wd);
       if (!pc.l) I.addWallC(owner, pc.x1, pc.z1, pc.x2, pc.z2, Fk - 0.05, ceilY); else I.addWallC(owner, pc.x1, pc.z1, pc.x2, pc.z2, Fk + 2.1, ceilY);
+      if (pc.l) {   // real door: permanent casing (jambs + head) in the level mesh, leaf = instanced, swings open when the player is near
+        const hw = L / 2, cc = [0.92, 0.9, 0.84], hsh = hash01(mx * 12.9898 + mz * 78.233 + k), hs = hsh < 0.5 ? 1 : -1;
+        frameBox(B, rects.plaster, cc, mx, mz, ex, ez, nx0, nz0, -hw, -hw + 0.07, -0.1, 0.1, Fk, Fk + 2.1);
+        frameBox(B, rects.plaster, cc, mx, mz, ex, ez, nx0, nz0, hw - 0.07, hw, -0.1, 0.1, Fk, Fk + 2.1);
+        frameBox(B, rects.plaster, cc, mx, mz, ex, ez, nx0, nz0, -hw, hw, -0.1, 0.1, Fk + 2.03, Fk + 2.1);
+        const lw = L - 0.16, hx = mx + ex * hs * (hw - 0.075), hz = mz + ez * hs * (hw - 0.075), ax = -ex * hs, az = -ez * hs;
+        const r = hash01(mx * 3.1 + mz * 5.7 + k * 1.3 + 0.5), kind = r < 0.55 ? 0 : r < 0.8 ? 1 : 2;
+        doors.push({ mx, mz, nx: nx0, nz: nz0, hx, hz, th0: Math.atan2(-az, ax), lw, kind, a: 0, tgt: 0, sgn: 1, dirty: true });
+      }
     }
     // stairs + railing
     if (stair) {
@@ -470,7 +521,19 @@ export class InteriorManager {
       mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; I.group.add(mesh); fmesh = mesh;
     }
     const mesh = new THREE.Mesh(B.build(), this.mat); mesh.matrixAutoUpdate = false; I.group.add(mesh);
-    I.levels.set(k, { mesh, fmesh, owner });
+    let dmesh = null;
+    if (doors.length) {
+      const g = furnBase().clone(), cnt = doors.length * 2, ra = new Float32Array(cnt * 4), ic = new Float32Array(cnt * 3);
+      dmesh = new THREE.InstancedMesh(g, this.mat, cnt); dmesh.frustumCulled = false; dmesh.matrixAutoUpdate = false;
+      doors.forEach((d, i) => {
+        const col = d.kind === 0 ? [1, 1, 1] : d.kind === 1 ? [1.0, 0.98, 0.94] : [0.62, 0.5, 0.42], rect = d.kind === 1 ? rects.plaster : d.kind === 0 ? rects.wood : rects.dark;
+        ra.set(rect, i * 8); ic.set(col, i * 6); ra.set(rects.dark, i * 8 + 4); ic.set([1.5, 1.45, 1.3], i * 6 + 3);
+      });
+      g.setAttribute('aRect', new THREE.InstancedBufferAttribute(ra, 4)); dmesh.instanceColor = new THREE.InstancedBufferAttribute(ic, 3);
+      I.group.add(dmesh);
+    }
+    const Lv = { mesh, fmesh, owner, doors, dmesh, Fk }; I.levels.set(k, Lv);
+    if (dmesh) this._poseDoors(Lv, true);
   }
 }
 

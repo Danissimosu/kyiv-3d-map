@@ -10,6 +10,13 @@ export const STYLE = {
   meeting:  { name: 'переговорная', floor: 'offcarpet', wall: 'wallpaper', ceil: 'ceiling', wallT: [0.8, 0.95, 0.85], ceilT: [0.94, 0.98, 1.05], floorT: [0.9, 1, 0.95], win: true },
   shop:     { name: 'магазин', floor: 'checker', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 1.0, 1.0], ceilT: [1.05, 1.05, 1.05], floorT: [1, 1, 1], win: true, brand: true },
   cafe:     { name: 'кафе', floor: 'plank', wall: 'brick', ceil: 'ceiling', wallT: [1.0, 0.82, 0.66], ceilT: [0.75, 0.6, 0.48], floorT: [1, 0.9, 0.8], win: true },
+  market:   { name: 'торговый зал', floor: 'checker', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 1.0, 1.0], ceilT: [1.08, 1.08, 1.08], floorT: [1.05, 1.05, 1.05], win: true, brand: true },
+  fastfood: { name: 'фастфуд', floor: 'tiles', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 0.9, 0.75], ceilT: [1.08, 1.05, 1.0], floorT: [1.0, 0.95, 0.9], win: true, brand: true },
+  dining:   { name: 'зал ресторана', floor: 'plank', wall: 'brick', ceil: 'ceiling', wallT: [1.0, 0.85, 0.7], ceilT: [0.8, 0.66, 0.55], floorT: [1, 0.92, 0.84], win: true, brand: true },
+  diy:      { name: 'торговый склад', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.9, 0.92, 0.95], ceilT: [1.0, 1.0, 1.05], floorT: [0.95, 0.95, 0.95], win: true },
+  depot:    { name: 'депо / склад', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.78, 0.8, 0.82], ceilT: [0.9, 0.9, 0.92], floorT: [0.85, 0.85, 0.85], win: true },
+  reception:{ name: 'приёмная', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.8, 0.88, 0.8], ceilT: [0.95, 1.0, 0.95], floorT: [0.9, 0.9, 0.9], win: false },
+  cell:     { name: 'камера', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.62, 0.68, 0.64], ceilT: [0.8, 0.84, 0.8], floorT: [0.7, 0.7, 0.7], win: false },
   hallway:  { name: 'холл', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.97, 0.94, 0.88], ceilT: [1, 0.97, 0.9], floorT: [1, 1, 1], win: true },
 };
 
@@ -25,7 +32,33 @@ export function classify(kind, seedU) {
 }
 
 // leaves: [{area, door, stair}] -> types[]
+const THEMES = { market: 'market', fastfood: 'fastfood', dining: 'dining', diy: 'diy', util: 'office', depot: 'depot', prison: 'cell' };
+export const POI_THEMES = THEMES;
+function assignThemed(cat, level, nLevels, leaves, rng) {
+  const main = THEMES[cat], pub = cat === 'market' || cat === 'fastfood' || cat === 'dining' || cat === 'diy';
+  if (cat === 'prison') {
+    if (leaves.length === 1) return [level === 0 ? 'reception' : 'cell'];
+    const t = leaves.map(() => 'cell'); const order = leaves.map((l, i) => i).sort((a, b) => leaves[b].area - leaves[a].area);
+    leaves.forEach((l, i) => { if (l.door && level === 0) t[i] = 'reception'; else if (l.stair) t[i] = 'hallway'; });
+    if (level === 0) { const big = order.find(i => t[i] === 'cell'); if (big !== undefined && leaves.length > 2) t[big] = 'hallway'; }
+    return t;
+  }
+  if (level > 0) return leaves.map(() => 'office');
+  if (leaves.length === 1) return [main];
+  const types = leaves.map(() => 'hallway'); const order = leaves.map((l, i) => i).sort((a, b) => leaves[b].area - leaves[a].area);
+  let bath = false;
+  order.forEach((i, n) => {
+    const l = leaves[i];
+    if (l.area < 3) return;
+    if (l.door) { types[i] = pub ? main : (cat === 'util' ? 'office' : main); return; }
+    if (l.stair) { types[i] = 'hallway'; return; }
+    if (!bath && l.area < 12 && leaves.length >= 3) { types[i] = 'bathroom'; bath = true; return; }
+    types[i] = n === 0 ? main : (pub ? (rng() < 0.6 ? main : 'office') : (rng() < 0.5 ? 'office' : main));
+  });
+  return types;
+}
 export function assignTypes(cat, level, nLevels, leaves, rng) {
+  if (THEMES[cat]) return assignThemed(cat, level, nLevels, leaves, rng);
   if (leaves.length === 1) return [cat === 'res' ? 'living' : cat === 'office' ? (level > 0 || leaves[0].area > 14 ? 'office' : 'meeting') : (level === 0 ? 'shop' : 'office')];
   const types = new Array(leaves.length).fill('hallway');
   const idx = leaves.map((l, i) => i).filter(i => leaves[i].area >= 3).sort((a, b) => leaves[a].area - leaves[b].area);   // ascending
@@ -84,9 +117,29 @@ const PIECES = {
   bar() { return { w: 3.0, d: 0.65, boxes: [B(0, 3.0, 0, 0.65, 0, 1.08, 'dark', [0.3, 0.2, 0.15]), B(0, 3.0, 0, 0.75, 1.08, 1.14, 'wood', [0.8, 0.6, 0.4], false), B(0.3, 2.7, 0, 0.3, 1.5, 1.52, 'wood', PAL.wood, false)] }; },
   bench() { return { w: 1.4, d: 0.45, boxes: [B(0, 1.4, 0, 0.45, 0, 0.45, 'wood', PAL.wood, false)] }; },
   console_() { return { w: 1.0, d: 0.35, boxes: [B(0, 1.0, 0, 0.35, 0, 0.8, 'wood', PAL.dwood)] }; },
+
+  marketShelf(rng) { const w = 2.6 + rng() * 0.8, bx = [B(0, w, 0, 0.55, 0, 1.75, 'dark', [0.72, 0.74, 0.78])]; for (let i = 0; i < 4; i++) { const y = 0.22 + i * 0.4; let a = 0.05; while (a < w - 0.3) { const ww = 0.18 + rng() * 0.3; if (a + ww > w - 0.05) break; bx.push(B(a, a + ww, 0.05, 0.5, y, y + 0.28, 'carpet', [0.4 + rng() * 0.6, 0.3 + rng() * 0.6, 0.25 + rng() * 0.6], false)); a += ww + 0.05; } } return { w, d: 0.55, boxes: bx }; },
+  fridgeWall() { return { w: 2.4, d: 0.75, boxes: [B(0, 2.4, 0, 0.75, 0, 1.95, 'walltile', [0.78, 0.9, 1.0]), B(0.05, 2.35, 0.7, 0.78, 0.15, 1.85, 'dark', [0.45, 0.6, 0.75], false)] }; },
+  checkout() { return { w: 1.7, d: 0.9, boxes: [B(0, 1.7, 0, 0.9, 0, 0.9, 'dark', [0.3, 0.3, 0.34]), B(0, 1.2, 0.05, 0.85, 0.9, 0.95, 'dark', [0.08, 0.08, 0.09], false), B(1.25, 1.6, 0.2, 0.6, 0.95, 1.25, 'dark', [0.15, 0.15, 0.18], false)] }; },
+  tray() { return { w: 3.4, d: 0.8, boxes: [B(0, 3.4, 0, 0.8, 0, 1.0, 'wood', [0.85, 0.2, 0.15]), B(0, 3.4, 0, 0.9, 1.0, 1.06, 'dark', [0.85, 0.85, 0.85], false), B(0.3, 3.1, 0.0, 0.1, 1.9, 2.4, 'dark', [0.95, 0.75, 0.1], false)] }; },
+  diningTable(rng) { const c = [[0.8, 0.2, 0.15], [0.95, 0.75, 0.15], [0.25, 0.4, 0.3]][(rng() * 3) | 0]; return { w: 1.8, d: 1.5, boxes: [B(0.3, 1.5, 0.35, 1.15, 0.72, 0.78, 'wood', PAL.wood, false), B(0.7, 0.8, 0.7, 0.8, 0, 0.72, 'dark', PAL.dark, false), B(0.3, 1.5, 0.0, 0.3, 0, 0.45, 'carpet', c, false), B(0.3, 1.5, 1.2, 1.5, 0, 0.45, 'carpet', c, false)] }; },
+  diyRack(rng) { const w = 2.4, bx = [B(0, w, 0, 0.9, 0, 2.7, 'dark', [0.9, 0.5, 0.15])]; for (let i = 0; i < 3; i++) { const y = 0.3 + i * 0.8; bx.push(B(0.1, w - 0.1, 0.1, 0.82, y, y + 0.6, 'wood', [0.6 + rng() * 0.3, 0.5, 0.35], false)); } return { w, d: 0.9, boxes: bx }; },
+  pallet(rng) { return { w: 1.3, d: 1.3, boxes: [B(0, 1.3, 0, 1.3, 0, 0.15, 'wood', PAL.wood), B(0.05, 1.25, 0.05, 1.25, 0.15, 0.9 + rng() * 0.8, 'wood', [0.7, 0.58, 0.4])] }; },
+  workbench() { return { w: 2.0, d: 0.7, boxes: [B(0, 2.0, 0, 0.7, 0, 0.9, 'dark', [0.4, 0.42, 0.45]), B(0, 2.0, 0, 0.75, 0.9, 0.95, 'wood', PAL.wood, false)] }; },
+  rack() { return { w: 2.2, d: 0.6, boxes: [B(0, 2.2, 0, 0.6, 0, 2.3, 'dark', [0.55, 0.58, 0.62]), B(0.1, 2.1, 0.05, 0.55, 0.6, 1.0, 'wood', [0.5, 0.4, 0.3], false)] }; },
+  barrel() { return { w: 0.7, d: 0.7, boxes: [B(0.05, 0.65, 0.05, 0.65, 0, 0.95, 'dark', [0.2, 0.35, 0.55])] }; },
+  bunk() { return { w: 0.95, d: 2.1, boxes: [B(0, 0.95, 0, 2.1, 0.3, 0.42, 'dark', [0.45, 0.47, 0.5]), B(0, 0.95, 0, 2.1, 1.3, 1.42, 'dark', [0.45, 0.47, 0.5]), B(0, 0.08, 0, 0.08, 0, 1.5, 'dark', [0.3, 0.3, 0.32], false), B(0.87, 0.95, 2.02, 2.1, 0, 1.5, 'dark', [0.3, 0.3, 0.32], false)] }; },
+  recDesk() { return { w: 2.4, d: 0.8, boxes: [B(0, 2.4, 0, 0.8, 0, 1.1, 'dark', [0.35, 0.4, 0.36]), B(0, 2.4, 0, 0.9, 1.1, 1.15, 'wood', PAL.wood, false)] }; },
   plant() { return { w: 0.5, d: 0.5, boxes: [B(0.1, 0.4, 0.1, 0.4, 0, 0.35, 'dark', [0.5, 0.3, 0.2], false), B(0.0, 0.5, 0.0, 0.5, 0.35, 1.3, 'carpet', [0.2, 0.55, 0.25], false)] }; },
 };
 const PLAN = {
+  market: ['marketShelf', 'fridgeWall', 'marketShelf', 'checkout', 'marketShelf', 'marketShelf', 'checkout', 'plant'],
+  fastfood: ['tray', 'diningTable', 'diningTable', 'diningTable', 'diningTable', 'plant'],
+  dining: ['bar', 'diningTable', 'diningTable', 'diningTable', 'diningTable', 'plant'],
+  diy: ['diyRack', 'diyRack', 'pallet', 'diyRack', 'pallet', 'diyRack', 'checkout', 'pallet'],
+  depot: ['workbench', 'rack', 'pallet', 'rack', 'barrel', 'pallet'],
+  reception: ['recDesk', 'bench', 'cabinet'],
+  cell: ['bunk', 'bunk', 'toilet'],
   living: ['sofa', 'tvstand', 'shelf', 'table', 'plant', 'nightstand'],
   bedroom: ['bed', 'wardrobe', 'nightstand', 'shelf', 'plant'],
   kitchen: ['counter', 'fridge', 'table', 'shelf'],
