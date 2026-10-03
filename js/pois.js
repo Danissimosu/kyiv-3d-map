@@ -131,10 +131,11 @@ export class PoiLayer {
   _initPanel() {
     const pn = this.panel = panel('placesP', 'Места'); this.sel = 'lm'; const body = pn.body;
     const chips = el('div', 'chips', '', body), list = el('div', '', '', body); this.listEl = list;
-    const defs = [['lm', '📍 Достопримечательности'], ['food', '🍽 Еда'], ['shop', '🛒 Магазины'], ['job', '💼 Работа'], ['special', '⛓ СИЗО']];
+    const defs = [['lm', '📍 Достопримечательности'], ['food', '🍽 Еда'], ['shop', '🛒 Магазины'], ['job', '💼 Работа'], ['special', '⛓ СИЗО'], ['stops', '🚏 Остановки']];
     const draw = () => {
       chips.innerHTML = ''; defs.forEach(([k, t]) => { const c = el('span', 'chip' + (this.sel === k ? ' on' : ''), t, chips); tap(c, () => { this.sel = k; if (k !== 'lm') this.groups.add(k); draw(); }); });
       list.innerHTML = '';
+      if (this.sel === 'stops') { if (this.transit && this.transit.loaded) this.transit.fillStops(list, pn, draw); else el('div', '', 'Данные транспорта не загружены', list); return; }
       if (this.sel === 'lm') {
         (this.ctx.landmarks || []).forEach(l => { const r = el('div', 'row', '', list); el('div', 't', `<b>${l.name}</b>`, r); tap(el('span', 'btn', 'ТП', r), () => { pn.close(); l.go(); }); });
         const note = el('div', '', '<small style="opacity:.6">Всё остальное — в вкладках: магазины, еда, работа и Киевский СИЗО (Дегтярёвская, 13).</small>', list); return;

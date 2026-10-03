@@ -2,6 +2,7 @@ import { City } from './city.js';
 import { PoiLayer } from './pois.js';
 import { Game } from './game.js';
 import { Crime } from './crime.js';
+import { Transit } from './transit.js';
 import { UI } from './ui.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
@@ -108,6 +109,8 @@ async function main() {
   await pois.load(BASE);
   const game = new Game({ P, world, scene, pois, qs, IS_TOUCH, START, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), paintMap: (...a) => paintMap(...a) });
   const crime = new Crime({ P, world, scene, city, pois, game, qs, IS_TOUCH, canvas, keys, T, START, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
+  const transit = new Transit(world, scene, { P, IS_TOUCH, qs, game, pois, keys, T, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
+  try { await transit.load(BASE); } catch (e) { console.warn('transit load failed', e); } pois.transit = transit;
   UI.onModal = n => { if (!n && !IS_TOUCH && started && !game.dead) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} };
 
   let manualShadow = manualShadow0;
@@ -118,7 +121,7 @@ async function main() {
     qLevel = Math.max(0, Math.min(3, l)); renderer.setPixelRatio(prFor(qLevel)); renderer.setSize(innerWidth, innerHeight, false);
     world.detailR = DETAILR[qLevel]; world.interiors.activateR = ACTR[qLevel]; world.interiors.disposeR = ACTR[qLevel] + 25;
     if (!manualShadow) setShadows(qLevel >= 2);
-    city.setLevel(qLevel); gov.lastChange = performance.now(); gov.good = 0;
+    city.setLevel(qLevel); transit.setLevel(qLevel); gov.lastChange = performance.now(); gov.good = 0;
   }
   function governor(raw) {
     if (!GOV || raw > 0.5 || !spawned) return; gov.t += raw; gov.n++;
@@ -170,7 +173,7 @@ async function main() {
     }
   }
   function drawMini() {
-    const W = 200; paintMap(mctx, W, W, P.x, P.z, W / 500, true); pois.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false);
+    const W = 200; paintMap(mctx, W, W, P.x, P.z, W / 500, true); pois.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false); transit.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false);
     mctx.save(); mctx.translate(W / 2, W / 2); mctx.rotate(-P.yaw);   // arrow: yaw 0 = north (up)
     mctx.fillStyle = '#e33'; mctx.strokeStyle = '#fff'; mctx.lineWidth = 2; mctx.beginPath(); mctx.moveTo(0, -9); mctx.lineTo(6, 7); mctx.lineTo(0, 3); mctx.lineTo(-6, 7); mctx.closePath(); mctx.fill(); mctx.stroke(); mctx.restore();
     mctx.fillStyle = '#000'; mctx.font = 'bold 11px sans-serif'; mctx.fillText('С', 94, 12);
@@ -182,7 +185,7 @@ async function main() {
     const W = bigcv.width, H = bigcv.height; BV.w = W; BV.h = H;
     BV.kmin = Math.min(W / (manifest.bounds[2] - manifest.bounds[0]), H / (manifest.bounds[3] - manifest.bounds[1])) * 0.95;
     BV.k = Math.max(BV.kmin, Math.min(BV.k, 0.6));
-    paintMap(bctx, W, H, BV.cx, BV.cz, BV.k, BV.k > 0.03); pois.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true);
+    paintMap(bctx, W, H, BV.cx, BV.cz, BV.k, BV.k > 0.03); pois.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true); transit.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true);
     const toS = (x, z) => [W / 2 + (x - BV.cx) * BV.k, H / 2 + (z - BV.cz) * BV.k];
     bctx.strokeStyle = 'rgba(255,255,255,.55)'; bctx.lineWidth = 1.5; bctx.beginPath(); manifest.city.forEach((p, i) => { const [sx, sy] = toS(p[0], p[1]); i ? bctx.lineTo(sx, sy) : bctx.moveTo(sx, sy); }); bctx.closePath(); bctx.stroke();
     bctx.font = '13px sans-serif'; LANDMARKS.forEach((l, i) => { const [x, z] = lmXZ(l), [sx, sy] = toS(x, z); bctx.fillStyle = '#c22'; bctx.beginPath(); bctx.arc(sx, sy, 4, 0, 7); bctx.fill(); bctx.lineWidth = 3; bctx.strokeStyle = 'rgba(255,255,255,.85)'; bctx.strokeText(l[0], sx + 7, sy + 4); bctx.fillStyle = '#012'; bctx.fillText(l[0], sx + 7, sy + 4); });
@@ -293,7 +296,7 @@ async function main() {
     governor(raw); frames++; tacc += raw; if (tacc > 0.5) { fps = frames / tacc; frames = 0; tacc = 0; updateHud(); }
     const before = world.tiles.size;
     if (spawned) world.update(P, dt, MOB ? 3 : 6);
-    if (spawned) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); pois.update(P, dt); game.update(P, dt); crime.update(P, dt); }
+    if (spawned) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
       const sx = SPX, sz = SPZ;
@@ -304,7 +307,7 @@ async function main() {
       if (have >= need.length) { spawn(); updateHud(); $('msg').textContent = 'Готово'; $('go').style.display = 'block'; $('bar').style.display = 'none'; if (qs.has('autostart')) { started = true; $('overlay').style.display = 'none'; } }
     } else if (started || qs.has('autostart') || true) {
       if (P.wait) { const tt = world.tiles.get(Math.floor(P.x / 500) + '_' + Math.floor(P.z / 500)); if (tt && tt.h) { P.wait = false; const g0 = world.heightAt(P.x, P.z); P.y = Math.max(world.groundAt(P.x, P.z, g0 + 300), g0) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; } }
-      else if (started && !mapOpen && !UI.modal && !game.dead && !crime.driving) physics(dt);
+      else if (started && !mapOpen && !UI.modal && !game.dead && !crime.driving && !transit.busy) physics(dt);
     }
     const bob = 0; const targetEye = P.y + EYE; P.eye += (targetEye - P.eye) * Math.min(1, dt * (P.grounded ? 18 : 40)); if (P.fly) P.eye = targetEye;
     camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0);
@@ -337,9 +340,9 @@ async function main() {
       X(восток) ${P.x.toFixed(0)} м · Z(юг) ${P.z.toFixed(0)} м<br>
       ${lat.toFixed(5)}°N ${lon.toFixed(5)}°E<br>
       высота над ур. моря: ${P.y.toFixed(1)} м<br>
-      тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}`;
+      тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}<br>${transit.hudLine()}`;
   }
-  window.__kyiv = { city, pois, game, crime, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
+  window.__kyiv = { city, pois, game, crime, transit, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
   requestAnimationFrame(frame);
 }
 main().catch(e => { console.error(e); const m = document.getElementById('msg'); if (m) m.textContent = 'Ошибка: ' + e.message; });

@@ -137,6 +137,16 @@ export class World {
     }
     return g;
   }
+  deckAt(x, z, feet) {   // highest bridge/ramp deck surface at (x,z) not above `feet` (or -1e9)
+    const c = this._cell(x, z, false); if (!c) return -1e9; let g = -1e9;
+    for (const d of c.decks) {
+      const dx = d.x2 - d.x1, dz = d.z2 - d.z1, L2 = dx * dx + dz * dz; if (L2 < 1e-6) continue;
+      const t = ((x - d.x1) * dx + (z - d.z1) * dz) / L2; if (t < 0 || t > 1) continue;
+      const px = d.x1 + t * dx - x, pz = d.z1 + t * dz - z; if (px * px + pz * pz > d.hw * d.hw) continue;
+      const y = d.y1 + t * (d.y2 - d.y1); if (y <= feet && y > g) g = y;
+    }
+    return g;
+  }
   collide(p, r, feet, height) {
     for (let it = 0; it < 3; it++) {
       let moved = false;

@@ -121,10 +121,11 @@ export class Game {
     const nearby = el('div', '', '', b), bal = el('div', '', '', b); b.insertBefore(cv, info);
     const zoomRow = el('div', 'chips', '', b); b.insertBefore(zoomRow, info);
     tap(el('span', 'chip', '＋', zoomRow), () => { this.pk = Math.min(1.6, this.pk * 1.6); }); tap(el('span', 'chip', '－', zoomRow), () => { this.pk = Math.max(0.03, this.pk / 1.6); });
-    const sh = () => { cv.style.display = zoomRow.style.display = this.pTab === 'map' ? '' : 'none'; nearby.style.display = this.pTab === 'near' ? '' : 'none'; bal.style.display = this.pTab === 'bal' ? '' : 'none';
-      tabs.innerHTML = ''; [['map', '🗺 GPS'], ['near', '📍 Рядом'], ['bal', '💳 Баланс']].forEach(([k, t]) => tap(el('span', 'chip' + (this.pTab === k ? ' on' : ''), t, tabs), () => { this.pTab = k; sh(); fill(); })); };
+    const sh = () => { cv.style.display = zoomRow.style.display = this.pTab === 'map' ? '' : 'none'; nearby.style.display = this.pTab === 'near' || this.pTab === 'bus' ? '' : 'none'; bal.style.display = this.pTab === 'bal' ? '' : 'none';
+      tabs.innerHTML = ''; [['map', '🗺 GPS'], ['near', '📍 Рядом'], ...(this.transit && this.transit.loaded ? [['bus', '🚏 Транспорт']] : []), ['bal', '💳 Баланс']].forEach(([k, t]) => tap(el('span', 'chip' + (this.pTab === k ? ' on' : ''), t, tabs), () => { this.pTab = k; sh(); fill(); })); };
     const fill = () => {
-      if (this.pTab === 'near') {
+      if (this.pTab === 'bus') this.transit.fillPhone(nearby);
+      else if (this.pTab === 'near') {
         nearby.innerHTML = ''; for (const grp of ['shop', 'food', 'job']) for (const { poi, dist } of this.pois.nearest(P.x, P.z, q => q.group === grp, 4)) {
           const r = el('div', 'row', '', nearby); el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'}</small>`, r);
           tap(el('span', 'btn g', this.pois.track === poi ? 'снять' : 'метка', r), () => { this.pois.setTrack(this.pois.track === poi ? null : poi); fill(); }); }
@@ -134,12 +135,12 @@ export class Game {
     };
     sh();
     const draw = () => {
-      if (!p.isOpen) return; const g = cv.getContext('2d'); ctx.paintMap(g, 320, 320, P.x, P.z, this.pk, true); this.pois.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true);
+      if (!p.isOpen) return; const g = cv.getContext('2d'); ctx.paintMap(g, 320, 320, P.x, P.z, this.pk, true); this.pois.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true); this.transit && this.transit.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true);
       g.save(); g.translate(160, 160); g.rotate(-P.yaw); g.fillStyle = '#2d7ff9'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 9); g.lineTo(0, 4); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
       g.fillStyle = '#fff'; g.font = 'bold 12px sans-serif'; g.fillText('С ↑', 6, 14); g.fillText(`${(1 / this.pk * 40).toFixed(0)} м ▭`, 6, 312);
-      if (this.pTab === 'near' || this.pTab === 'bal') fill();
+      if (this.pTab === 'near' || this.pTab === 'bal' || this.pTab === 'bus') fill();
     };
-    p.onOpen = () => { fill(); this._ph = setInterval(draw, 400); draw(); }; p.onClose = () => clearInterval(this._ph);
+    p.onOpen = () => { sh(); fill(); this._ph = setInterval(draw, 400); draw(); }; p.onClose = () => clearInterval(this._ph);
   }
   // ---------------------------------------------------------------- service pads inside shops / job offices
   _pads() {
@@ -184,7 +185,7 @@ export class Game {
     const mine = S.job && S.job.key === poi.key;
     if (!S.job) tap(el('div', 'btn', 'Устроиться', b), () => { S.job = { key: poi.key, name: poi.name }; this.dirty = 1; toast('Вы приняты: ' + J.title); this.openJob(poi); });
     else if (mine) {
-      tap(el('div', 'btn', this.shift ? 'Смена уже идёт' : 'Начать смену', b), () => { if (this.shift) return; this.shift = { key: poi.key, t: 0, dur: J.dur, wage: J.wage, x: poi.x, z: poi.z, poi }; p.close(); toast('Смена началась — оставайтесь рядом (до 80 м)'); });
+      tap(el('div', 'btn', this.shift ? 'Смена уже идёт' : 'Начать смену', b), () => { if (this.shift) return; if ((poi.key === 'bus' || poi.key === 'tram') && this.transit && this.transit.loaded) { p.close(); this.transit.startDriving(poi); return; } this.shift = { key: poi.key, t: 0, dur: J.dur, wage: J.wage, x: poi.x, z: poi.z, poi }; p.close(); toast('Смена началась — оставайтесь рядом (до 80 м)'); });
       const q = el('div', 'btn r', 'Уволиться', b); q.style.marginTop = '8px'; tap(q, () => { S.job = null; this.dirty = 1; this.openJob(poi); });
     } else { el('div', '', `<p>Вы уже работаете: ${JOBS[S.job.key].title}. Чтобы сменить работу, сначала увольтесь.</p>`, b); const q = el('div', 'btn r', 'Уволиться', b); tap(q, () => { S.job = null; this.dirty = 1; this.openJob(poi); }); }
     p.open();
