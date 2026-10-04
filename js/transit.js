@@ -157,15 +157,15 @@ export class Transit {
     for (const ro of this.routes) for (const dir of ro.dirs) for (let pi = 0; pi < dir.pats.length; pi++) {
       const pat = dir.pats[pi], arr = pat[day]; if (!arr.length) continue;
       for (let bs = 0; bs < 2; bs++) {
-        const Tx = T + bs * 86400, lo = (Tx - pat.dur - 1800) / 60, hi = (Tx + 120) / 60; let a = 0, b = arr.length;
+        const Tx = T + bs * 86400, lo = (Tx - pat.dur - 330) / 60, hi = (Tx + 45) / 60; let a = 0, b = arr.length;
         while (a < b) { const m = (a + b) >> 1; if (arr[m] < lo) a = m + 1; else b = m; }
         for (let j = a; j < arr.length && arr[j] <= hi; j++) {
           const key = ro.i + '.' + dir.idx + '.' + pi + '.' + arr[j] + '.' + bs; let v = this.veh.get(key);
           if (!v) { v = { key, ro, dir, pat, t0: arr[j] * 60 - bs * 86400, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null }; this.veh.set(key, v); }
           this._upd(v, T, false);
-          // layover at the terminus: a vehicle that finished its trip waits 6 min with open doors (and stays up to 30 min while the player is nearby);
-          // it also appears 2 min before departing. So nothing vanishes in front of the player.
-          if (v.tt > pat.dur + 30 && v.tt > pat.dur + 360 && Math.hypot(v.x - P.x, v.z - P.z) > 150) { this.veh.delete(key); continue; }
+          // layover at the terminus: a vehicle that finished its trip waits 90 s with open doors (up to 5 min while the player stands within 40 m); it appears 45 s before departing.
+          // (Longer layovers made a quarter of the fleet look parked.)
+          if (v.tt > pat.dur + 90 && (v.tt > pat.dur + 300 || Math.hypot(v.x - P.x, v.z - P.z) > 40) && !(this.ride && this.ride.v === v)) { this.veh.delete(key); continue; }
           seen.add(key); this.act.push(v);
         }
       }
@@ -251,7 +251,8 @@ export class Transit {
   // ---------------------------------------------------------------- per-frame
   update(P, dt) {
     if (!this.loaded) return;
-    const now = performance.now(); const hold = this.boardP && this.boardP.isOpen;   // the doors stay open while the player decides about the ticket
+    const now = performance.now(); let hold = this.boardP && this.boardP.isOpen;   // the doors stay open while the player decides about the ticket - but never longer than 12 s (a forgotten panel froze ALL vehicles)
+    if (hold) { this.holdAt = this.holdAt || now; if (now - this.holdAt > 12000) { hold = false; this.holdAt = 0; this.boardP.close(); toast('Транспорт уехал', 1800); } } else this.holdAt = 0;
     if (!hold) this.cT += (now - this.last) / 1000 * this.rate; this.last = now;
     const gc = this.ctx.clock;   // follow the game clock's weekday / time-of-day period (vehicles keep real-time speed: at 60x they would move at ~300 m/s)
     if (gc && this.rate === 1 && ((this.rs = (this.rs || 0) + dt) > 2)) { this.rs = 0; let df = ((gc.t - this.cT) % 86400 + 86400) % 86400; if (df > 43200) df -= 86400;

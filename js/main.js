@@ -62,7 +62,7 @@ async function main() {
   const GOV = !qs.has('shot') && qs.get('gov') !== '0';
   const PRL = MOB ? [1.0, 1.25, 1.5, 2.0] : [1.0, 1.15, 1.3, 1.5], DETAILR = MOB ? [0, 200, 320, 450] : [150, 300, 450, 600], ACTR = [35, 45, 55, 60];
   const MAXPR = parseFloat(qs.get('pr') || '0');
-  const post = new Post(renderer, { mob: MOB }); post.dbg = qs.has('aodebug') ? 1 : 0; const POSTQ = qs.has('post') ? parseInt(qs.get('post')) : -1;
+  const post = new Post(renderer, { mob: MOB }); post.dbg = qs.has('aodebug') ? 1 : 0; const POSTQ = qs.has('post') ? parseInt(qs.get('post')) : (qs.get('shot') === '1' ? 0 : -1);   // test mode (shot=1) renders without post unless ?post= is given (software GL is ~1 fps)
   const postFor = l => POSTQ >= 0 ? POSTQ : (l >= 3 ? 2 : l >= 2 ? 1 : 0);
   const PRLP = MOB ? [1.0, 1.25, 1.4, 1.6] : [1.0, 1.15, 1.3, 1.5];
   let qLevel = qs.has('q') ? Math.max(0, Math.min(3, parseInt(qs.get('q')))) : 3;
@@ -362,7 +362,7 @@ async function main() {
     if (spawned && paused && menuMain) { P.yaw += dt * 0.05; P.pitch = -0.04; }
     if (spawned) world.update(P, dt, MOB ? 3 : 6);
     if (saves && saves.pending) saves.applyPending();
-    if (spawned && paused && menuMain) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); }
+    if (spawned && paused && menuMain) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); transit.update(P, dt); }   // the menu backdrop shows moving traffic and transit
     else if (spawned && !paused) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); jobs.update(P, dt); taxiApp.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
