@@ -6,6 +6,9 @@ import { Transit } from './transit.js';
 import { GameClock } from './clock.js';
 import { Jobs } from './jobs.js';
 import { UI } from './ui.js';
+import { Menu } from './menu.js';
+import { TaxiApp } from './taxi.js';
+import { SaveSystem, newestSave, hasSave } from './save.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { World } from './world.js';
@@ -23,7 +26,9 @@ const START = { x: -2363.5, z: 1036.3, yaw: 131 };
 const AT = { palladina11: [50.4620881, 30.3526914], troieshchyna: [50.5137, 30.6065], darnytsia: [50.4558, 30.6129], pozniaky: [50.3971, 30.6339], obolon: [50.5033, 30.4985], sizo: [50.4608, 30.4795] };
 const ATLL = qs.has('lat') ? [parseFloat(qs.get('lat')), parseFloat(qs.get('lon'))] : (AT[qs.get('at')] || null);
 const ATXZ = ATLL ? ll2xz(ATLL[0], ATLL[1]) : null;
-const SPX = parseFloat(qs.get('x') ?? (ATXZ ? ATXZ[0] : START.x)), SPZ = parseFloat(qs.get('z') ?? (ATXZ ? ATXZ[1] : START.z));   // yaw in degrees, 0 = north
+const MENU = !(qs.has('autostart') || qs.has('shot') || qs.has('nomenu'));   // main menu on load (tests / screenshots use autostart / shot)
+const SAVED0 = MENU && !qs.has('x') && !qs.has('lat') && !qs.has('at') ? newestSave() : null;   // the city behind the menu is the last saved place
+let SPX = parseFloat(qs.get('x') ?? (ATXZ ? ATXZ[0] : SAVED0 ? SAVED0.save.P.x : START.x)), SPZ = parseFloat(qs.get('z') ?? (ATXZ ? ATXZ[1] : SAVED0 ? SAVED0.save.P.z : START.z));   // yaw in degrees, 0 = north
 const lmXZ = l => l[3] !== undefined ? [l[3], l[4]] : ll2xz(l[1], l[2]);
 const LANDMARKS = [
   ['Ж/д вокзал Киев-Пассажирский (старт)', 50.4411, 30.4891, START.x, START.z],
@@ -40,10 +45,12 @@ const IS_TOUCH = (qs.get('touch') === '1') || (qs.get('touch') !== '0' && (('ont
 if (IS_TOUCH) document.body.classList.add('touch');
 const MOB = IS_TOUCH;   // mobile performance profile
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
-document.addEventListener('touchmove', e => { if (IS_TOUCH && e.target.closest && !e.target.closest('#big, .gp')) e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', e => { if (IS_TOUCH && e.target.closest && !e.target.closest('#big, .gp, #menu, #mdlg')) e.preventDefault(); }, { passive: false });
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 async function main() {
+  let paused = false, inGame = false, menuMain = false, saves = null, menu = null;
+  if (MENU) $('overlay').style.display = 'none';
   const BASE = (qs.get('tiles') || 'tiles').replace(/\/?$/, '/');
   const manifest = await (await fetch(BASE + 'manifest.json')).json();
   const canvas = $('view');
@@ -102,6 +109,26 @@ async function main() {
     const gy = world.heightAt(x, z); P.y = Math.max(world.groundAt(x, z, gy + 300), gy) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; P.px0 = x; P.pz0 = z;
     P.wait = !world.tiles.get(Math.floor(x / 500) + '_' + Math.floor(z / 500))?.h; };   // far teleport: hold the player until the tile under them has loaded
   let started = false, locked = false, spawned = false;
+  const startGame = () => {
+    started = true; paused = false; menuMain = false; inGame = true; menu.hide(); document.body.classList.remove('inmenu'); clock.last = performance.now(); autoT = 0;
+    if (!IS_TOUCH) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+  };
+  let autoT = 0;
+  function showMenu(mode) { paused = true; menuMain = mode === 'main'; document.body.classList.add('inmenu'); if (document.pointerLockElement) document.exitPointerLock(); menu.show(mode); }
+  function openPause() { if (!MENU || !started || !spawned || paused || game.dead || UI.modal) return; if (crime.jail) { /* jail has its own flow; still allow pausing */ } showMenu('pause'); }
+  function autosave(why) { if (!saves || !inGame || !started) return; if (saves.save('auto')) menu.flash(); }
+  if (MENU) {
+    menu = new Menu({
+      isReady: () => spawned, newGame: () => { saves.newGame(); startGame(); autosave(); }, loadSave: sv => { saves.load(sv); startGame(); },
+      saveManual: () => { const ok = saves.save('manual'); if (ok) menu.flash(); return ok; }, resume: () => startGame(),
+      toMain: () => { if (saves.canSave()) saves.save('auto'); inGame = false; showMenu('main'); },
+      statusLine: () => `${clock.text} · ₴${Math.round(game.S.money)} · ❤ ${Math.round(game.S.hp)}%`,
+    });
+    document.body.classList.add('inmenu'); menu.show('main'); paused = true; menuMain = true;
+    setInterval(() => { if (!paused) autosave('timer'); }, 30000);
+    addEventListener('pagehide', () => { if (inGame) autosave('hide'); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && inGame) autosave('hide'); });
+  }
   const gotoDoor = (pl, dist = 5, yawOff = 0) => { const d = pl.door; P.fly = false; teleport(d.mx + d.nx * dist, d.mz + d.nz * dist, Math.atan2(d.nx, d.nz) + yawOff, 0); P.y = world.heightAt(P.x, P.z); P.eye = P.y + 1.7; world.interiors.forceBuild(P); return pl; };
   const spawn = () => {
     const sx = SPX, sz = SPZ;
@@ -120,11 +147,14 @@ async function main() {
   const pois = new PoiLayer(world, scene, { P, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d), noTeleport: false,
     landmarks: LANDMARKS.map(l => ({ name: l[0], go: () => { const [x, z] = lmXZ(l); teleport(x, z); } })) });
   await pois.load(BASE);
-  const game = new Game({ P, world, scene, pois, qs, clock, IS_TOUCH, START, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), paintMap: (...a) => paintMap(...a) });
+  const game = new Game({ openPause: () => openPause(), P, world, scene, pois, qs, clock, IS_TOUCH, START, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), paintMap: (...a) => paintMap(...a) });
   const crime = new Crime({ P, world, scene, city, pois, game, qs, IS_TOUCH, canvas, keys, T, START, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
   const transit = new Transit(world, scene, { P, IS_TOUCH, qs, clock, game, pois, keys, T, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
   try { await transit.load(BASE); } catch (e) { console.warn('transit load failed', e); } pois.transit = transit;
   const jobs = new Jobs({ P, world, scene, pois, city, clock, game, crime, transit, qs, keys, T, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
+  const taxiApp = new TaxiApp({ P, city, world, game, jobs, transit, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit) }); game.taxi = taxiApp;
+  if (MENU) saves = new SaveSystem({ taxi: taxiApp, P, game, crime, jobs, transit, clock, city, pois, world, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), START, defaults: () => game.defaults(),
+    placeName: () => { let b = null, bd = 1e9; for (const l of LANDMARKS) { const [x, z] = lmXZ(l); const d = Math.hypot(x - P.x, z - P.z); if (d < bd) { bd = d; b = l[0]; } } return b && bd < 900 ? 'у: ' + b.replace(/ \(старт\)/, '') : ''; } });
   UI.onModal = n => { if (!n && !IS_TOUCH && started && !game.dead) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} };
 
   let manualShadow = manualShadow0;
@@ -157,8 +187,9 @@ async function main() {
     if (e.code === 'Space') e.preventDefault();
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
+  addEventListener('keydown', e => { if (e.code === 'Escape' && MENU && paused && !menuMain && !menu.dlg.style.display.includes('flex')) startGame(); });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
-  document.addEventListener('pointerlockchange', () => { if (IS_TOUCH) return; locked = document.pointerLockElement === canvas; if (!locked && started && !UI.modal && !game.dead) $('overlay').style.display = 'flex', $('go').style.display = 'block', $('msg').textContent = 'Пауза'; });
+  document.addEventListener('pointerlockchange', () => { if (IS_TOUCH) return; locked = document.pointerLockElement === canvas; if (!locked && started && !UI.modal && !game.dead && !paused) { if (MENU) openPause(); else $('overlay').style.display = 'flex', $('go').style.display = 'block', $('msg').textContent = 'Пауза'; } });
   document.addEventListener('mousemove', e => {
     if (!locked) return;
     P.yaw -= e.movementX * 0.0022; P.pitch = Math.max(-1.5, Math.min(1.5, P.pitch - e.movementY * 0.0022));
@@ -188,7 +219,7 @@ async function main() {
     }
   }
   function drawMini() {
-    const W = 200; paintMap(mctx, W, W, P.x, P.z, W / 500, true); pois.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false); transit.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false);
+    const W = 200; paintMap(mctx, W, W, P.x, P.z, W / 500, true); pois.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false); transit.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false); taxiApp.drawMarkers(mctx, W, W, P.x, P.z, W / 500, false);
     mctx.save(); mctx.translate(W / 2, W / 2); mctx.rotate(-P.yaw);   // arrow: yaw 0 = north (up)
     mctx.fillStyle = '#e33'; mctx.strokeStyle = '#fff'; mctx.lineWidth = 2; mctx.beginPath(); mctx.moveTo(0, -9); mctx.lineTo(6, 7); mctx.lineTo(0, 3); mctx.lineTo(-6, 7); mctx.closePath(); mctx.fill(); mctx.stroke(); mctx.restore();
     mctx.fillStyle = '#000'; mctx.font = 'bold 11px sans-serif'; mctx.fillText('С', 94, 12);
@@ -200,7 +231,7 @@ async function main() {
     const W = bigcv.width, H = bigcv.height; BV.w = W; BV.h = H;
     BV.kmin = Math.min(W / (manifest.bounds[2] - manifest.bounds[0]), H / (manifest.bounds[3] - manifest.bounds[1])) * 0.95;
     BV.k = Math.max(BV.kmin, Math.min(BV.k, 0.6));
-    paintMap(bctx, W, H, BV.cx, BV.cz, BV.k, BV.k > 0.03); pois.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true); transit.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true);
+    paintMap(bctx, W, H, BV.cx, BV.cz, BV.k, BV.k > 0.03); pois.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true); transit.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true); taxiApp.drawMarkers(bctx, W, H, BV.cx, BV.cz, BV.k, true);
     const toS = (x, z) => [W / 2 + (x - BV.cx) * BV.k, H / 2 + (z - BV.cz) * BV.k];
     bctx.strokeStyle = 'rgba(255,255,255,.55)'; bctx.lineWidth = 1.5; bctx.beginPath(); manifest.city.forEach((p, i) => { const [sx, sy] = toS(p[0], p[1]); i ? bctx.lineTo(sx, sy) : bctx.moveTo(sx, sy); }); bctx.closePath(); bctx.stroke();
     bctx.font = '13px sans-serif'; LANDMARKS.forEach((l, i) => { const [x, z] = lmXZ(l), [sx, sy] = toS(x, z); bctx.fillStyle = '#c22'; bctx.beginPath(); bctx.arc(sx, sy, 4, 0, 7); bctx.fill(); bctx.lineWidth = 3; bctx.strokeStyle = 'rgba(255,255,255,.85)'; bctx.strokeText(l[0], sx + 7, sy + 4); bctx.fillStyle = '#012'; bctx.fillText(l[0], sx + 7, sy + 4); });
@@ -264,7 +295,7 @@ async function main() {
     tstart($('bMore'), () => { pois.panel.open(); });
     $('bFly').classList.toggle('on', P.fly);
   }
-  function ensureStart() { if (spawned && !started) { started = true; $('overlay').style.display = 'none'; } }
+  function ensureStart() { if (spawned && !started && !MENU) { started = true; $('overlay').style.display = 'none'; } }
   $('overlay').addEventListener('touchend', e => { if (IS_TOUCH && spawned) { e.preventDefault(); ensureStart(); } }, { passive: false });
 
   // ---- main loop
@@ -310,8 +341,11 @@ async function main() {
     const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
     governor(raw); frames++; tacc += raw; if (tacc > 0.5) { fps = frames / tacc; frames = 0; tacc = 0; updateHud(); }
     const before = world.tiles.size;
+    if (spawned && paused && menuMain) { P.yaw += dt * 0.05; P.pitch = -0.04; }
     if (spawned) world.update(P, dt, MOB ? 3 : 6);
-    if (spawned) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); jobs.update(P, dt); }
+    if (saves && saves.pending) saves.applyPending();
+    if (spawned && paused && menuMain) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); }
+    else if (spawned && !paused) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); jobs.update(P, dt); taxiApp.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
       const sx = SPX, sz = SPZ;
@@ -319,10 +353,11 @@ async function main() {
       const have = need.filter(k => world.tiles.get(k)?.h).length;
       $('bar').firstElementChild.style.width = (100 * have / Math.max(1, need.length)) + '%'; $('msg').textContent = `Загрузка тайлов: ${have}/${need.length}…`;
       world.update({ x: sx, z: sz }, dt, 40);
-      if (have >= need.length) { spawn(); updateHud(); $('msg').textContent = 'Готово'; $('go').style.display = 'block'; $('bar').style.display = 'none'; if (qs.has('autostart')) { started = true; $('overlay').style.display = 'none'; } }
+      if (menu) menu.setProgress(have / Math.max(1, need.length), `Загрузка города: ${have}/${need.length}…`);
+      if (have >= need.length) { spawn(); updateHud(); if (menu) menu.show('main'); $('msg').textContent = 'Готово'; $('go').style.display = 'block'; $('bar').style.display = 'none'; if (qs.has('autostart')) { started = true; $('overlay').style.display = 'none'; } }
     } else if (started || qs.has('autostart') || true) {
-      if (P.wait) { const tt = world.tiles.get(Math.floor(P.x / 500) + '_' + Math.floor(P.z / 500)); if (tt && tt.h) { P.wait = false; const g0 = world.heightAt(P.x, P.z); P.y = Math.max(world.groundAt(P.x, P.z, g0 + 300), g0) + (P.fly ? 1.7 : 3); P.eye = P.y + 1.7; } }
-      else if (started && !mapOpen && !UI.modal && !game.dead && !crime.driving && !transit.busy) physics(dt);
+      if (P.wait) { const tt = world.tiles.get(Math.floor(P.x / 500) + '_' + Math.floor(P.z / 500)); if (tt && tt.h) { P.wait = false; const g0 = world.heightAt(P.x, P.z); P.y = P.restoreY !== undefined ? P.restoreY : Math.max(world.groundAt(P.x, P.z, g0 + 300), g0) + (P.fly ? 1.7 : 3); P.restoreY = undefined; P.eye = P.y + 1.7; } }
+      else if (started && !paused && !mapOpen && !UI.modal && !game.dead && !crime.driving && !transit.busy && !taxiApp.busy) physics(dt);
     }
     const bob = 0; const targetEye = P.y + EYE; P.eye += (targetEye - P.eye) * Math.min(1, dt * (P.grounded ? 18 : 40)); if (P.fly) P.eye = targetEye;
     camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0);
@@ -360,7 +395,7 @@ async function main() {
       тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}<br>${transit.hudLine()}`;
     $('hudtxt').innerHTML = IS_TOUCH && !hudOpen ? `${fps.toFixed(0)} fps · Q${qLevel}` : full;
   }
-  window.__kyiv = { city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
+  window.__kyiv = { city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; }, taxi: taxiApp, get saves() { return saves; }, get menu() { return menu; }, openPause, autosave, get paused() { return paused; } };
   requestAnimationFrame(frame);
 }
 main().catch(e => { console.error(e); const m = document.getElementById('msg'); if (m) m.textContent = 'Ошибка: ' + e.message; });

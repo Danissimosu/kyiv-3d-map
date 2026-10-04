@@ -129,6 +129,7 @@ export class Transit {
       if (st.pre) { st.sx = st.pre[0]; st.sz = st.pre[1]; st.face = st.pre[2]; st.signYaw = Math.atan2(tx, tz); st.px = st.sx + tx * 2.7; st.pz = st.sz + tz * 2.7; st.rx = a.x; st.rz = a.z; continue; }   // kerb-side placement from tools/place_stops.py
       st.face = Math.atan2(fx, fz); st.sx = px; st.sz = pz; st.signYaw = Math.atan2(tx, tz); st.px = px + tx * 2.7; st.pz = pz + tz * 2.7; st.rx = a.x; st.rz = a.z;
     }
+    for (const st of this.stops) if (st.sx !== undefined) this.world.addPole('*', st.sx, st.sz, 1.1);   // shelters are solid for cars
     this._buildGfx(); this._ui(); this.loaded = true;
     this.scan(true);
   }
@@ -156,19 +157,23 @@ export class Transit {
     for (const ro of this.routes) for (const dir of ro.dirs) for (let pi = 0; pi < dir.pats.length; pi++) {
       const pat = dir.pats[pi], arr = pat[day]; if (!arr.length) continue;
       for (let bs = 0; bs < 2; bs++) {
-        const Tx = T + bs * 86400, lo = (Tx - pat.dur - 30) / 60, hi = (Tx + 25) / 60; let a = 0, b = arr.length;
+        const Tx = T + bs * 86400, lo = (Tx - pat.dur - 1800) / 60, hi = (Tx + 120) / 60; let a = 0, b = arr.length;
         while (a < b) { const m = (a + b) >> 1; if (arr[m] < lo) a = m + 1; else b = m; }
         for (let j = a; j < arr.length && arr[j] <= hi; j++) {
           const key = ro.i + '.' + dir.idx + '.' + pi + '.' + arr[j] + '.' + bs; let v = this.veh.get(key);
           if (!v) { v = { key, ro, dir, pat, t0: arr[j] * 60 - bs * 86400, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null }; this.veh.set(key, v); }
-          seen.add(key); this._upd(v, T, false); this.act.push(v);
+          this._upd(v, T, false);
+          // layover at the terminus: a vehicle that finished its trip waits 6 min with open doors (and stays up to 30 min while the player is nearby);
+          // it also appears 2 min before departing. So nothing vanishes in front of the player.
+          if (v.tt > pat.dur + 30 && v.tt > pat.dur + 360 && Math.hypot(v.x - P.x, v.z - P.z) > 150) { this.veh.delete(key); continue; }
+          seen.add(key); this.act.push(v);
         }
       }
     }
     for (const k of [...this.veh.keys()]) if (!seen.has(k)) { const v = this.veh.get(k); if (this.ride && this.ride.v === v) { this._exit(true); } this.veh.delete(k); }
     // near set
     const lv = this.level, R = (this.mob ? RADV.m : RADV.d)[lv], cap = (this.mob ? CAPV.m : CAPV.d)[lv], px = P.x, pz = P.z;
-    const c = []; for (const v of this.act) { if (!this.filt.has(v.ro.t)) continue; const d = Math.hypot(v.x - px, v.z - pz); if (d < R) { v.dp = d; c.push(v); } }
+    const c = [], prev = this.near; for (const v of this.act) { if (!this.filt.has(v.ro.t)) continue; const d = Math.hypot(v.x - px, v.z - pz), was = prev.includes(v); if (d < R * (was ? 1.2 : 1)) { v.dp = d * (was ? 0.75 : 1); c.push(v); } }   // hysteresis: a vehicle already drawn is not swapped out at the cap/radius edge
     c.sort((a, b) => a.dp - b.dp); this.near = c.slice(0, cap); if (this.ride && !this.near.includes(this.ride.v)) this.near.push(this.ride.v);
   }
   _upd(v, T, full) {
@@ -246,11 +251,12 @@ export class Transit {
   // ---------------------------------------------------------------- per-frame
   update(P, dt) {
     if (!this.loaded) return;
-    const now = performance.now(); this.cT += (now - this.last) / 1000 * this.rate; this.last = now;
+    const now = performance.now(); const hold = this.boardP && this.boardP.isOpen;   // the doors stay open while the player decides about the ticket
+    if (!hold) this.cT += (now - this.last) / 1000 * this.rate; this.last = now;
     const gc = this.ctx.clock;   // follow the game clock's weekday / time-of-day period (vehicles keep real-time speed: at 60x they would move at ~300 m/s)
     if (gc && this.rate === 1 && ((this.rs = (this.rs || 0) + dt) > 2)) { this.rs = 0; let df = ((gc.t - this.cT) % 86400 + 86400) % 86400; if (df > 43200) df -= 86400;
-      if ((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > 6 * 3600) { this.cT = gc.t; this.wk = gc.wk; if (this.ride) this._exit(true); this.veh.clear(); this.t1 = 9; } }
-    if (this.cT >= 86400) { this.cT -= 86400; this.wk = (this.wk + 1) % 7; if (this.ride) this._exit(true); this.veh.clear(); this.t1 = 9; }
+      if (((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > 6 * 3600) && !this.busy && !this.near.some(v => Math.hypot(v.x - P.x, v.z - P.z) < 160)) { this.cT = gc.t; this.wk = gc.wk; this.veh.clear(); this.t1 = 9; } }   // silent: only while nobody rides and no vehicle is in sight
+    if (this.cT >= 86400) { this.cT -= 86400; this.wk = (this.wk + 1) % 7; if (this.ride) this._exit(true); this.veh.clear(); this.t1 = 9; }   // real-time midnight (once per 24 real hours)
     this.t1 += dt; if (this.t1 > (this.rate > 5 ? 0.25 : 1)) { this.t1 = 0; this.scan(); }
     this.t2 += dt; if (this.t2 > 0.4) { this.t2 = 0; this._updateStops(P); }
     if (this.busy) { const g = this.ctx.game, c = g.crime; if (g.dead || (c && (c.jail || c.driving))) this.abort(true); else if (this.ls && Math.hypot(P.x - this.ls[0], P.z - this.ls[1]) > 25) { this._cancel(); } }
@@ -336,15 +342,16 @@ Object.assign(Transit.prototype, {
   boardPanel(v) {
     const p = this.boardP, g = this.ctx.game; p.titleEl.textContent = `${TICON[v.ro.t]} ${TNAME[v.ro.t]} ${v.ro.n}`; const b = p.body; b.innerHTML = '';
     el('div', 'row', `<div class="t"><b>→ ${v.dir.to}</b><small>${v.ro.name}<br>Баланс ₴${Math.floor(g.S.money)}</small></div>`, b);
-    const buy = el('div', 'btn' + (g.S.money < FARE ? ' off' : ''), `Купить билет — ₴${FARE}`, b); buy.style.marginTop = '6px'; tap(buy, () => { if (!g.pay(FARE)) { toast('Не хватает денег'); return; } p.close(); this.board(v, true); });
+    const buy = el('div', 'btn' + (g.S.money < FARE ? ' off' : ''), `Купить билет — ₴${FARE}`, b); buy.style.marginTop = '6px'; tap(buy, () => { if (g.S.money < FARE) { toast('Не хватает денег'); return; } p.close(); if (this.board(v, true)) g.pay(FARE); });
     const free = el('div', 'btn r', 'Ехать без билета (риск штрафа)', b); free.style.marginTop = '8px'; tap(free, () => { p.close(); this.board(v, false); });
     const c = el('div', 'btn g', 'Отмена', b); c.style.marginTop = '8px'; tap(c, () => p.close()); p.open();
   },
   board(v, ticket) {
-    const P = this.P; if (!v.doors) { toast('Двери уже закрылись'); return; }
+    const P = this.P; if (!v.doors && !(v.tt - (v.pat.leave[v.seg] || 0) < 6 && v.moving && this._reach(v, P) < 6)) { toast('Двери уже закрылись — ждите следующий'); return false; }
     this.ls = null; P.fly = false; this.ride = { v, ticket, t: 0, ann: -1, arr: -1, insp: !ticket && Math.random() < 0.55 ? rnd(25, 80) : 1e9 }; this.cur = v;
     toast(ticket ? `🎫 Билет куплен (₴${FARE})` : '⚠ Без билета — возможен контролёр', 2800);
-    this._announce(v, true); this.bSkip.style.display = 'flex'; P.yaw = v.yaw + Math.PI; P.pitch = 0;
+    this._announce(v, true); this.bSkip.style.display = 'flex'; P.yaw = v.yaw + Math.PI; P.pitch = 0; this._rideStep(P, 0);
+    return true;
   },
   _announce(v, first) {
     const pat = v.pat, r = this.ride; if (!r) return; const k = v.moving ? v.seg : v.dw;

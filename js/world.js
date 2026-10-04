@@ -49,7 +49,7 @@ function triangulate(ring, holes) {
 export class World {
   constructor(scene, manifest, opts = {}) {
     this.scene = scene; this.man = manifest; this.tiles = new Map(); this.TILE = manifest.tile; this.NG = manifest.ng; this.GRID = manifest.grid;
-    this.cells = new Map(); this.loading = new Set(); this.ready = []; this.loadR = opts.loadR || 1500; this.unloadR = opts.unloadR || 2300;
+    this.cells = new Map(); this.poles = new Map(); this.loading = new Set(); this.ready = []; this.loadR = opts.loadR || 1500; this.unloadR = opts.unloadR || 2300;
     this.detailR = opts.detailR || 600; this.shadows = opts.shadows !== false; this.treeKeep = opts.treeKeep ?? 1; this.lampKeep = opts.lampKeep ?? 1;
     this.facadeTex = makeFacadeTextures();
     const PBR = opts.pbr !== false, ns = opts.normalScale ?? 1.0;
@@ -147,6 +147,17 @@ export class World {
     }
     return g;
   }
+  // ---- vehicle-only point obstacles (tree trunks, lamp posts, stop shelters): {x,z,r,tile}; cells of PC metres
+  addPole(tileKey, x, z, r) { const k = Math.floor(x / 16) + ',' + Math.floor(z / 16); let a = this.poles.get(k); if (!a) { a = []; this.poles.set(k, a); } a.push({ x, z, r, tile: tileKey }); if (tileKey !== '*') { const t = this.tiles.get(tileKey); if (t) (t.poleKeys || (t.poleKeys = new Set())).add(k); } }
+  dropPoles(t, key) { if (!t.poleKeys) return; for (const k of t.poleKeys) { const a = this.poles.get(k); if (!a) continue; const b = a.filter(o => o.tile !== key); if (b.length) this.poles.set(k, b); else this.poles.delete(k); } t.poleKeys = null; }
+  collideCar(p, r) {   // pushes p out of poles; returns the push distance (0 = free)
+    let tot = 0;
+    for (let cx = Math.floor((p.x - r - 1) / 16); cx <= Math.floor((p.x + r + 1) / 16); cx++) for (let cz = Math.floor((p.z - r - 1) / 16); cz <= Math.floor((p.z + r + 1) / 16); cz++) {
+      const a = this.poles.get(cx + ',' + cz); if (!a) continue;
+      for (const o of a) { const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz, rr = r + o.r; if (d2 < rr * rr) { const d = Math.sqrt(d2) || 1e-3; p.x += dx / d * (rr - d); p.z += dz / d * (rr - d); tot += rr - d; } }
+    }
+    return tot;
+  }
   collide(p, r, feet, height) {
     for (let it = 0; it < 3; it++) {
       let moved = false;
@@ -225,7 +236,7 @@ export class World {
     this.scene.remove(t.group); if (t.treeGroup) this.scene.remove(t.treeGroup);
     for (const g of [t.group, t.treeGroup]) if (g) g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.userData.ownMat) { o.material.dispose(); } if (o.userData.splat && !(o.userData.splat.userData && o.userData.splat.userData.shared)) o.userData.splat.dispose(); });
     for (const k of t.cellKeys) { const c = this.cells.get(k); if (!c) continue; for (const a of ['walls', 'roofs', 'decks']) c[a] = c[a].filter(o => o.tile !== key); if (!c.walls.length && !c.roofs.length && !c.decks.length && !c.floors.length) this.cells.delete(k); }
-    this.tiles.delete(key);
+    this.dropPoles(t, key); this.tiles.delete(key);
   }
   get loadedCount() { let n = 0; for (const t of this.tiles.values()) if (t.h) n++; return n; }
 
@@ -259,7 +270,7 @@ export class World {
     const tg = new THREE.Group(); t.treeGroup = tg;
     if (d.t && d.t.length) this._buildTrees(t, d.t, tg);
     if (d.l && d.l.length) { const keepL = []; for (let i = 0; i < d.l.length; i += 2) if (this.lampKeep >= 1 || hash(d.l[i] * 0.37 + d.l[i + 1]) < this.lampKeep) keepL.push(d.l[i], d.l[i + 1]); d.l = keepL; const n = d.l.length / 2, im = new THREE.InstancedMesh(this.lampGeo, this.lampMat, n), m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
-      for (let i = 0; i < n; i++) { const x = d.l[2 * i], z = d.l[2 * i + 1]; q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), hash(x * 7 + z) * 6.28); p.set(x, this.heightAt(x, z), z); m.compose(p, q, s); im.setMatrixAt(i, m); }
+      for (let i = 0; i < n; i++) { const x = d.l[2 * i], z = d.l[2 * i + 1]; this.addPole(key, x, z, 0.2); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), hash(x * 7 + z) * 6.28); p.set(x, this.heightAt(x, z), z); m.compose(p, q, s); im.setMatrixAt(i, m); }
       im.castShadow = this.shadows; im.frustumCulled = false; tg.add(im); }
     this.scene.add(group); this.scene.add(tg);
   }
@@ -719,7 +730,7 @@ diffuseColor.rgb *= col * 1.25;`);
       const ids = per[ty]; if (!ids.length) continue;
       const im = new THREE.InstancedMesh(this.treeGeo[ty], this.treeMat, ids.length);
       ids.forEach((i, k) => {
-        const x = arr[i], z = arr[i + 1], sc = arr[i + 2];
+        const x = arr[i], z = arr[i + 1], sc = arr[i + 2]; this.addPole(t.ix + '_' + t.iz, x, z, 0.28 + 0.12 * Math.min(2, sc));
         q.setFromAxisAngle(yaxis, hash(x * 3.1 + z) * 6.28); s.set(sc, sc * (0.9 + 0.3 * hash(z + x * 0.3)), sc); p.set(x, this.heightAt(x, z) - 0.1, z); m.compose(p, q, s); im.setMatrixAt(k, m);
         const j = hash(x * 1.7 + z * 9.1); c.setRGB(0.85 + 0.3 * j, 0.85 + 0.25 * hash(j * 17), 0.8 + 0.3 * hash(j * 31)); im.setColorAt(k, c);
       });

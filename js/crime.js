@@ -190,6 +190,7 @@ export class Crime {
   enterCar(c, legit) {
     const g = this.game; if (this.driving) return; const wasParked = c.parked, wit = legit ? 0 : this.witnessed(35);
     if (!legit) this.addHeat(wasParked ? (g.count('crowbar') ? 0.15 : (wit ? 1.1 : 0.45)) : 1.6, wasParked ? 'угон' : 'угон с водителем');
+    if (!legit) { c.stolen = true; c.keep = true; let n = 0; for (const o of this.city.cars) if (o.stolen && o !== c && ++n > 5) o.keep = false; }
     c.player = true; c.parked = false; c.vel = c.speed || 0; c.speed = 0; c.tilt = 0; this.driving = c; this.steer = 0; const P = this.P; P.fly = false;
     P.x = c.x; P.z = c.z; P.vx = P.vz = 0; toast('🚗 W/S — газ/тормоз · A/D — руль · Пробел — ручник · E — выйти'); this.ctx.setDriving && this.ctx.setDriving(true);
   }
@@ -212,12 +213,26 @@ export class Crime {
     const nx = c.x + Math.sin(c.yaw) * v * dt, nz = c.z + Math.cos(c.yaw) * v * dt;
     const f = { x: nx + Math.sin(c.yaw) * 1.6, z: nz + Math.cos(c.yaw) * 1.6 }, b = { x: nx - Math.sin(c.yaw) * 1.4, z: nz - Math.cos(c.yaw) * 1.4 };
     const f0 = { x: f.x, z: f.z }, b0 = { x: b.x, z: b.z }; this.world.collide(f, 1.0, c.y, 1.4); this.world.collide(b, 1.0, c.y, 1.4);
-    const corr = Math.hypot(f.x - f0.x, f.z - f0.z) + Math.hypot(b.x - b0.x, b.z - b0.z);
+    const pf = this.world.collideCar(f, 1.0), pb = this.world.collideCar(b, 1.0);   // trunks, lamp posts, stop shelters
+    const corr = Math.hypot(f.x - f0.x, f.z - f0.z) + Math.hypot(b.x - b0.x, b.z - b0.z) + pf + pb;
     c.x = (f.x + b.x) / 2 + (Math.sin(c.yaw) * 0.1); c.z = (f.z + b.z) / 2 + Math.cos(c.yaw) * 0.1;
     if (corr > 0.02) { if (Math.abs(v) > 9) { this.game.hurt(Math.max(0, (Math.abs(v) - 9) * 1.6), 'Авария'); c.dmg = true; this.addHeat(0.3, 'ДТП'); } v *= 0.3; }
+    // other cars (traffic, parked, police): no pass-through; push out, bounce, damage; parked cars get shoved a little
+    const hits = this.city.carHits(c, c.x, c.z, c.yaw, this._hits || (this._hits = [])); let worst = 0;
+    for (const h of hits) {
+      const d = h.d, share = d.parked ? 0.3 : 0; c.x += h.nx * h.pen * (1 - share); c.z += h.nz * h.pen * (1 - share);
+      if (share) { if (d.hx === undefined) { d.hx = d.x; d.hz = d.z; } if (Math.hypot(d.x - d.hx, d.z - d.hz) < 1.6) { d.x -= h.nx * h.pen * share; d.z -= h.nz * h.pen * share; } else { c.x += h.nx * h.pen * share; c.z += h.nz * h.pen * share; } d.hitT = 1; } else { d.hitT = 1.5; d.speed *= 0.3; }
+      worst = Math.max(worst, Math.abs(v) + (d.parked ? 0 : Math.abs(d.speed || 0) * 0.5));
+    }
+    if (hits.length && worst > 1.5) {
+      if (worst > 7) { this.game.hurt(Math.max(0, (worst - 7) * 1.5), 'Авария'); if (worst > 11) c.dmg = true; if (!hits.every(h => h.d.parked && worst < 10)) this.addHeat(worst > 11 ? 0.5 : 0.25, 'ДТП'); }
+      v = -v * 0.3; if (Math.abs(v) < 1.2) v = 0; c.tilt = 0.06;
+    }
     c.vel = v; c.speed = v;
     const gy = this.world.groundAt(c.x, c.z, c.y + 1.0) + 0.17; c.y += (gy - c.y) * Math.min(1, dt * 14);
     c.tilt = -this.steer * Math.min(1, Math.abs(v) / 20) * 0.05;
+    // pedestrians: slow contact pushes them aside and stops the car, fast contact knocks them down
+    if (Math.abs(v) > 0.4 && Math.abs(v) <= 4.5) for (const a of this.city.peds) { if (a.inside || a.state === 'down') continue; const sg = Math.sign(v), px = c.x + Math.sin(c.yaw) * 2.1 * sg, pz = c.z + Math.cos(c.yaw) * 2.1 * sg; if (Math.hypot(a.x - px, a.z - pz) < 1.3) { a.state = 'stagger'; a.t = 0; a.x += Math.sin(c.yaw) * 0.5 * sg; a.z += Math.cos(c.yaw) * 0.5 * sg; v = sg * Math.min(Math.abs(v), 0.6); c.vel = v; c.speed = v; } }
     // run over pedestrians
     if (Math.abs(v) > 4.5) for (const a of this.city.peds) { if (a.inside || a.state === 'down') continue; if (Math.hypot(a.x - c.x - Math.sin(c.yaw) * 1.8 * Math.sign(v), a.z - c.z - Math.cos(c.yaw) * 1.8 * Math.sign(v)) < 1.4) { a.state = 'down'; a.t = 0; a.hp = 3; this.addHeat(0.9, 'наезд'); v *= 0.75; c.vel = v; } }
     P.x = c.x; P.z = c.z; P.y = c.y - 0.45 - 0.0; P.vx = P.vz = P.vy = 0; P.grounded = true; P.yaw = c.yaw + Math.PI + (this.look || 0); P.pitch *= 0.9;

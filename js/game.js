@@ -4,7 +4,6 @@ import { $, UI, el, tap, toast, panel } from './ui.js';
 import { JOBDEFS, scheduleText } from './jobs.js';
 import { WD, hhmm } from './clock.js';
 
-const KEY = 'kyiv.game.v1';
 export const ITEMS = {
   phone:   { n: 'Смартфон', icon: '📱', stack: 1, info: 'Карта с GPS, ближайшие места и работа' },
   burger:  { n: 'Бургер', icon: '🍔', food: 32 }, fries: { n: 'Картофель фри', icon: '🍟', food: 18 }, cola: { n: 'Кола', icon: '🥤', water: 30 }, coffee: { n: 'Кофе', icon: '☕', water: 12, food: 3 },
@@ -48,15 +47,14 @@ export class Game {
     });
     addEventListener('keyup', e => { if (e.code === 'KeyE') this.holdE = false; }); addEventListener('blur', () => { this.holdE = false; });
     for (const [ev, v] of [['pointerdown', true], ['pointerup', false], ['pointercancel', false], ['pointerleave', false]]) this.bAct.addEventListener(ev, () => { this.holdE = v; });
-    setInterval(() => this._save(), 4000);
   }
   _load() {
     const def = { hp: 100, food: 82, water: 82, money: 300, inv: [{ id: 'phone', n: 1 }, { id: 'water', n: 1 }, { id: 'bread', n: 1 }], job: null, jobs: 0 };
-    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && typeof s.hp === 'number') return Object.assign(def, s); } catch (e) {}
     return def;
   }
-  _save() { if (!this.dirty) return; this.dirty = 0; try { localStorage.setItem(KEY, JSON.stringify(this.S)); } catch (e) {} }
-  reset() { try { localStorage.removeItem(KEY); } catch (e) {} this.S = this._load(); this.refresh(); }
+  _save() { this.dirty = 0; }   // persistence lives in save.js (slots)
+  defaults() { return this._load(); }
+  reset() { this.S = this._load(); this.refresh(); }
   // ---------------------------------------------------------------- items / money
   count(id) { let n = 0; for (const s of this.S.inv) if (s.id === id) n += s.n; return n; }
   add(id, n = 1) {
@@ -84,7 +82,7 @@ export class Game {
   respawn() { const S = this.S; S.hp = 50; S.food = Math.max(S.food, 45); S.water = Math.max(S.water, 45); this.dead = false; const s = this.ctx.START; this.ctx.teleport(s.x, s.z, THREE.MathUtils.degToRad(s.yaw), 0); this.dirty = 1; this.refresh(); this.onRespawn && this.onRespawn(); }
   // ---------------------------------------------------------------- UI
   _ui() {
-    const { IS_TOUCH } = this.ctx; this.sv = el('div', '', '', document.body);
+    const { IS_TOUCH } = this.ctx; this.sv = el('div', 'svhud', '', document.body);
     this.sv.style.cssText = (IS_TOUCH ? 'font-size:11px;' : '') + 'position:fixed;left:50%;transform:translateX(-50%);top:calc(8px + env(safe-area-inset-top));z-index:6;display:flex;gap:8px;align-items:center;padding:3px 9px;background:rgba(12,18,26,.62);border-radius:12px;color:#fff;font:600 12px -apple-system,system-ui,sans-serif;pointer-events:none;font-variant-numeric:tabular-nums';
     const bar = (ic, c) => { const w = el('span', '', `<span>${ic}</span><span style="display:inline-block;width:${IS_TOUCH ? 30 : 50}px;height:7px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-left:3px"><i style="display:block;height:100%;width:100%;background:${c}"></i></span>`, this.sv); return w.querySelector('i'); };
     this.bHp = bar('❤', '#e74c3c'); this.bFood = bar('🍖', '#e6a23c'); this.bWater = bar('💧', '#3fa7f0'); this.moneyEl = el('span', '', '', this.sv); this.clockEl = el('span', '', '', this.sv); this.clockEl.style.cssText = 'opacity:.85;font-size:11px';
@@ -93,6 +91,7 @@ export class Game {
     // buttons
     const mkBtn = (txt, right, fn, extra = '') => { const b = el('div', 'gbtn', txt, document.body); b.style.cssText = `right:calc(${right}px + env(safe-area-inset-right));top:calc(8px + env(safe-area-inset-top));--slot:${Math.round((right - 134) / 52)};${extra}`; b.classList.add('slot'); b.style.display = IS_TOUCH ? 'flex' : 'none'; tap(b, fn); return b; };
     this.bInv = mkBtn('🎒', 134, () => this.invP.toggle()); this.bPhone = mkBtn('📱', 186, () => this.phoneP.toggle());
+    this.bPause = mkBtn('⏸', 238, () => this.ctx.openPause && this.ctx.openPause());
     this.bAct = el('div', 'gbtn', 'E', document.body); this.bAct.style.cssText = 'right:calc(24px + env(safe-area-inset-right));bottom:calc(226px + env(safe-area-inset-bottom));width:44px;height:44px;font-size:17px;font-weight:700;background:rgba(255,217,102,.6);border-color:rgba(255,255,255,.5);color:#111;display:none';
     tap(this.bAct, () => this.doAction());
     // panels
@@ -122,10 +121,11 @@ export class Game {
     const nearby = el('div', '', '', b), bal = el('div', '', '', b); b.insertBefore(cv, info);
     const zoomRow = el('div', 'chips', '', b); b.insertBefore(zoomRow, info);
     tap(el('span', 'chip', '＋', zoomRow), () => { this.pk = Math.min(1.6, this.pk * 1.6); }); tap(el('span', 'chip', '－', zoomRow), () => { this.pk = Math.max(0.03, this.pk / 1.6); });
-    const sh = () => { cv.style.display = zoomRow.style.display = this.pTab === 'map' ? '' : 'none'; nearby.style.display = this.pTab === 'near' || this.pTab === 'bus' ? '' : 'none'; bal.style.display = this.pTab === 'bal' ? '' : 'none';
-      tabs.innerHTML = ''; [['map', '🗺 GPS'], ['near', '📍 Рядом'], ...(this.transit && this.transit.loaded ? [['bus', '🚏 Транспорт']] : []), ['bal', '💳 Баланс']].forEach(([k, t]) => tap(el('span', 'chip' + (this.pTab === k ? ' on' : ''), t, tabs), () => { this.pTab = k; sh(); fill(); })); };
+    const sh = () => { cv.style.display = zoomRow.style.display = this.pTab === 'map' || this.pTab === 'taxi' ? '' : 'none'; nearby.style.display = this.pTab === 'near' || this.pTab === 'bus' || this.pTab === 'taxi' ? '' : 'none'; bal.style.display = this.pTab === 'bal' ? '' : 'none';
+      tabs.innerHTML = ''; [['map', '🗺 GPS'], ['near', '📍 Рядом'], ...(this.transit && this.transit.loaded ? [['bus', '🚏 Транспорт']] : []), ...(this.taxi ? [['taxi', '🚕 Такси']] : []), ['bal', '💳 Баланс']].forEach(([k, t]) => tap(el('span', 'chip' + (this.pTab === k ? ' on' : ''), t, tabs), () => { this.pTab = k; sh(); fill(); })); };
     const fill = () => {
       if (this.pTab === 'bus') this.transit.fillPhone(nearby);
+      else if (this.pTab === 'taxi') this.taxi.fillPhone(nearby);
       else if (this.pTab === 'near') {
         nearby.innerHTML = ''; for (const grp of ['shop', 'food', 'job']) for (const { poi, dist } of this.pois.nearest(P.x, P.z, q => q.group === grp, 4)) {
           const r = el('div', 'row', '', nearby); el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'}</small>`, r);
@@ -136,11 +136,12 @@ export class Game {
     };
     sh();
     const draw = () => {
-      if (!p.isOpen) return; const g = cv.getContext('2d'); ctx.paintMap(g, 320, 320, P.x, P.z, this.pk, true); this.pois.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true); this.transit && this.transit.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true);
+      if (!p.isOpen) return; const g = cv.getContext('2d'); ctx.paintMap(g, 320, 320, P.x, P.z, this.pk, true); this.pois.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true); this.transit && this.transit.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true); this.taxi && this.taxi.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true);
       g.save(); g.translate(160, 160); g.rotate(-P.yaw); g.fillStyle = '#2d7ff9'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 9); g.lineTo(0, 4); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
       g.fillStyle = '#fff'; g.font = 'bold 12px sans-serif'; g.fillText('С ↑', 6, 14); g.fillText(`${(1 / this.pk * 40).toFixed(0)} м ▭`, 6, 312);
-      if (this.pTab === 'near' || this.pTab === 'bal' || this.pTab === 'bus') fill();
+      if (this.pTab === 'near' || this.pTab === 'bal' || this.pTab === 'bus' || this.pTab === 'taxi') fill();
     };
+    tap(cv, ev => { if (this.pTab !== 'taxi' || !this.taxi) return; const t = ev.changedTouches ? ev.changedTouches[0] : ev, r = cv.getBoundingClientRect(); const px = (t.clientX - r.left) / r.width * 320, py = (t.clientY - r.top) / r.height * 320; this.taxi.mapTap(P.x + (px - 160) / this.pk, P.z + (py - 160) / this.pk); draw(); });
     p.onOpen = () => { sh(); fill(); this._ph = setInterval(draw, 400); draw(); }; p.onClose = () => clearInterval(this._ph);
   }
   // ---------------------------------------------------------------- service pads inside shops / job offices
