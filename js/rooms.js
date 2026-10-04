@@ -13,6 +13,13 @@ export const STYLE = {
   market:   { name: 'торговый зал', floor: 'checker', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 1.0, 1.0], ceilT: [1.08, 1.08, 1.08], floorT: [1.05, 1.05, 1.05], win: true, brand: true },
   fastfood: { name: 'фастфуд', floor: 'tiles', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 0.9, 0.75], ceilT: [1.08, 1.05, 1.0], floorT: [1.0, 0.95, 0.9], win: true, brand: true },
   dining:   { name: 'зал ресторана', floor: 'plank', wall: 'brick', ceil: 'ceiling', wallT: [1.0, 0.85, 0.7], ceilT: [0.8, 0.66, 0.55], floorT: [1, 0.92, 0.84], win: true, brand: true },
+  mcd:      { name: 'McDonald\'s-стиль: зал', floor: 'tiles', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 0.86, 0.74], ceilT: [0.9, 0.88, 0.86], floorT: [0.9, 0.9, 0.95], win: true },
+  puzata:   { name: 'столовая (раздача)', floor: 'plank', wall: 'plaster', ceil: 'plank', wallT: [0.74, 0.92, 0.7], ceilT: [0.95, 0.82, 0.7], floorT: [1, 0.9, 0.78], win: true },
+  silpo:    { name: 'супермаркет', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.9, 1.0, 0.92], ceilT: [0.66, 0.68, 0.68], floorT: [1.12, 1.12, 1.1], win: true },
+  epicentr: { name: 'гипермаркет для дома', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 0.97, 0.72], ceilT: [0.78, 0.8, 0.8], floorT: [0.95, 0.95, 0.92], win: true },
+  wkoffice: { name: 'офис (open-space)', floor: 'offcarpet', wall: 'plaster', ceil: 'ceiling', wallT: [0.92, 0.96, 1.0], ceilT: [0.96, 1.0, 1.05], floorT: [0.85, 0.88, 0.92], win: true },
+  wkdepot:  { name: 'склад (доки)', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.72, 0.75, 0.78], ceilT: [0.8, 0.82, 0.84], floorT: [0.8, 0.8, 0.82], win: true },
+  staff:    { name: 'бытовка', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.97, 0.97, 0.95], ceilT: [1, 1, 1], floorT: [0.82, 0.82, 0.82], win: true },
   diy:      { name: 'торговый склад', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.9, 0.92, 0.95], ceilT: [1.0, 1.0, 1.05], floorT: [0.95, 0.95, 0.95], win: true },
   depot:    { name: 'депо / склад', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.78, 0.8, 0.82], ceilT: [0.9, 0.9, 0.92], floorT: [0.85, 0.85, 0.85], win: true },
   reception:{ name: 'приёмная', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.8, 0.88, 0.8], ceilT: [0.95, 1.0, 0.95], floorT: [0.9, 0.9, 0.9], win: false },
@@ -32,10 +39,11 @@ export function classify(kind, seedU) {
 }
 
 // leaves: [{area, door, stair}] -> types[]
-const THEMES = { market: 'market', fastfood: 'fastfood', dining: 'dining', diy: 'diy', util: 'office', depot: 'depot', prison: 'cell' };
+const THEMES = { market: 'market', fastfood: 'fastfood', dining: 'dining', diy: 'diy', mcd: 'mcd', puzata: 'puzata', silpo: 'silpo', epicentr: 'epicentr', util: 'wkoffice', depot: 'wkdepot', prison: 'cell' };
+const PUBLIC = new Set(['market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr']);
 export const POI_THEMES = THEMES;
 function assignThemed(cat, level, nLevels, leaves, rng) {
-  const main = THEMES[cat], pub = cat === 'market' || cat === 'fastfood' || cat === 'dining' || cat === 'diy';
+  const main = THEMES[cat], pub = PUBLIC.has(cat);
   if (cat === 'prison') {
     if (leaves.length === 1) return [level === 0 ? 'reception' : 'cell'];
     const t = leaves.map(() => 'cell'); const order = leaves.map((l, i) => i).sort((a, b) => leaves[b].area - leaves[a].area);
@@ -50,10 +58,10 @@ function assignThemed(cat, level, nLevels, leaves, rng) {
   order.forEach((i, n) => {
     const l = leaves[i];
     if (l.area < 3) return;
-    if (l.door) { types[i] = pub ? main : (cat === 'util' ? 'office' : main); return; }
+    if (l.door) { types[i] = main; return; }
     if (l.stair) { types[i] = 'hallway'; return; }
     if (!bath && l.area < 12 && leaves.length >= 3) { types[i] = 'bathroom'; bath = true; return; }
-    types[i] = n === 0 ? main : (pub ? (rng() < 0.6 ? main : 'office') : (rng() < 0.5 ? 'office' : main));
+    types[i] = n === 0 ? main : (pub ? (rng() < 0.6 ? main : 'office') : cat === 'depot' ? (rng() < 0.6 ? 'staff' : main) : cat === 'util' ? (rng() < 0.4 ? 'meeting' : main) : (rng() < 0.5 ? 'office' : main));
   });
   return types;
 }
@@ -130,9 +138,53 @@ const PIECES = {
   barrel() { return { w: 0.7, d: 0.7, boxes: [B(0.05, 0.65, 0.05, 0.65, 0, 0.95, 'dark', [0.2, 0.35, 0.55])] }; },
   bunk() { return { w: 0.95, d: 2.1, boxes: [B(0, 0.95, 0, 2.1, 0.3, 0.42, 'dark', [0.45, 0.47, 0.5]), B(0, 0.95, 0, 2.1, 1.3, 1.42, 'dark', [0.45, 0.47, 0.5]), B(0, 0.08, 0, 0.08, 0, 1.5, 'dark', [0.3, 0.3, 0.32], false), B(0.87, 0.95, 2.02, 2.1, 0, 1.5, 'dark', [0.3, 0.3, 0.32], false)] }; },
   recDesk() { return { w: 2.4, d: 0.8, boxes: [B(0, 2.4, 0, 0.8, 0, 1.1, 'dark', [0.35, 0.4, 0.36]), B(0, 2.4, 0, 0.9, 1.1, 1.15, 'wood', PAL.wood, false)] }; },
+
+  // ---- design pack pieces (brand zones from manifest.json) -------------------------------------------------------------
+  poster(rect, w = 1.5, y0 = 1.2) { const h = w / 1.5; return { w, d: 0.06, boxes: [B(-0.04, w + 0.04, 0, 0.03, y0 - 0.04, y0 + h + 0.04, 'dark', [0.12, 0.12, 0.13], false), B(0, w, 0, 0.055, y0, y0 + h, rect, [1.05, 1.05, 1.05], false)] }; },
+  // McDonald's: order counter with light-wood front + menu boards, self-order kiosks, red booths with yellow chairs
+  mcdCounter() { return { w: 4.0, d: 0.8, boxes: [B(0, 4.0, 0, 0.8, 0, 1.0, 'wood', [1.05, 0.95, 0.8]), B(0, 4.0, 0, 0.85, 1.0, 1.06, 'dark', [0.16, 0.16, 0.18], false), B(0.1, 3.9, 0, 0.1, 1.06, 1.9, 'dark', [0.5, 0.5, 0.52], false),
+    B(0.2, 1.2, 0, 0.12, 2.0, 2.5, 'bMcdR', [1, 1, 1], false), B(1.35, 2.55, 0, 0.12, 2.0, 2.5, 'bMcdY', [1, 1, 1], false), B(2.7, 3.8, 0, 0.12, 2.0, 2.5, 'bMcdR', [1, 1, 1], false), B(0.4, 0.8, 0.25, 0.55, 1.06, 1.3, 'dark', [0.08, 0.08, 0.09], false)] }; },
+  mcdKiosk() { const bx = []; for (let i = 0; i < 3; i++) { const a = i * 0.75; bx.push(B(a, a + 0.5, 0, 0.3, 0, 1.6, 'dark', [0.12, 0.12, 0.14]), B(a + 0.05, a + 0.45, 0.28, 0.32, 0.95, 1.5, 'bWhite', [0.45, 0.75, 1.1], false), B(a, a + 0.5, 0, 0.3, 1.6, 1.7, 'bMcdR', [1, 1, 1], false)); } return { w: 2.0, d: 0.32, boxes: bx }; },
+  redBooth(rng) { const w = 2.0; return { w, d: 1.9, boxes: [B(0, w, 0, 0.55, 0, 0.45, 'bMcdR', [1, 0.95, 0.95]), B(0, w, 0, 0.18, 0.45, 1.15, 'bMcdR', [0.95, 0.9, 0.9]), B(0.2, 1.8, 0.7, 1.3, 0.72, 0.78, 'wood', [1.1, 0.98, 0.8], false), B(0.95, 1.05, 0.95, 1.05, 0, 0.72, 'dark', PAL.dark, false), B(0, w, 1.4, 1.9, 0, 0.45, 'bMcdY', [1, 1, 1], false), B(0, w, 1.75, 1.9, 0.45, 0.85, 'bMcdY', [1, 1, 1], false)] }; },
+  yellowTable() { return { w: 1.7, d: 1.4, boxes: [B(0.3, 1.4, 0.3, 1.1, 0.72, 0.78, 'wood', [1.1, 0.98, 0.8], false), B(0.8, 0.9, 0.65, 0.75, 0, 0.72, 'dark', PAL.dark, false), B(0.4, 0.8, 0.0, 0.3, 0, 0.8, 'bMcdY', [1, 1, 1], false), B(0.9, 1.3, 1.1, 1.4, 0, 0.8, 'bMcdY', [1, 1, 1], false)] }; },
+  // Puzata Hata: serving line (glass guard, pots), carved wooden table with benches, embroidery band
+  servingLine() { const bx = [B(0, 4.4, 0, 0.8, 0, 0.9, 'bPuz', [0.95, 1, 0.95]), B(0, 4.4, 0, 0.9, 0.9, 0.95, 'dark', [0.8, 0.8, 0.82], false), B(0, 4.4, 0.78, 1.15, 0.75, 0.82, 'wood', [0.9, 0.8, 0.6], false), B(0, 4.4, 0, 0.8, 1.55, 1.6, 'dark', [0.8, 0.9, 0.95], false), B(0, 0.05, 0, 0.8, 0.95, 1.6, 'dark', [0.7, 0.72, 0.75], false), B(4.35, 4.4, 0, 0.8, 0.95, 1.6, 'dark', [0.7, 0.72, 0.75], false)];
+    const pots = [[0.8, 0.2, 0.15], [0.95, 0.85, 0.5], [0.85, 0.55, 0.2], [0.95, 0.95, 0.9], [0.7, 0.25, 0.15], [0.45, 0.65, 0.3]]; for (let i = 0; i < 6; i++) bx.push(B(0.2 + i * 0.7, 0.7 + i * 0.7, 0.15, 0.65, 0.95, 1.12, 'dark', pots[i], false));
+    bx.push(B(0, 4.4, 0, 0.12, 2.1, 2.45, 'pPuzI', [0.9, 0.9, 0.9], false)); return { w: 4.4, d: 1.15, boxes: bx }; },
+  woodTable() { return { w: 2.2, d: 1.5, boxes: [B(0.2, 2.0, 0.4, 1.1, 0.72, 0.78, 'wood', [1.0, 0.85, 0.6], false), B(0.3, 0.4, 0.5, 0.6, 0, 0.72, 'dark', PAL.dwood, false), B(1.8, 1.9, 0.9, 1.0, 0, 0.72, 'dark', PAL.dwood, false), B(0.2, 2.0, 0.0, 0.3, 0, 0.46, 'wood', [0.75, 0.55, 0.35], false), B(0.2, 2.0, 1.2, 1.5, 0, 0.46, 'wood', [0.75, 0.55, 0.35], false)] }; },
+  embroidery() { const w = 3.2, bx = [B(0, w, 0, 0.05, 1.6, 2.0, 'bWhite', [1, 0.97, 0.9], false)]; for (let i = 0; i < 12; i++) bx.push(B(0.05 + i * 0.26, 0.2 + i * 0.26, 0, 0.065, 1.68, 1.92, i % 2 ? 'bMcdR' : 'bPuz', i % 2 ? [0.9, 0.2, 0.2] : [0.7, 0.2, 0.2], false)); return { w, d: 0.07, boxes: bx }; },
+  carvedShelf() { return { w: 1.6, d: 0.4, boxes: [B(0, 1.6, 0, 0.4, 0, 1.9, 'wood', [0.62, 0.3, 0.2]), B(0.05, 1.55, 0.35, 0.42, 0.3, 0.62, 'carpet', [0.9, 0.7, 0.3], false), B(0.05, 1.55, 0.35, 0.42, 0.9, 1.2, 'carpet', [0.85, 0.3, 0.25], false), B(0.05, 1.55, 0.35, 0.42, 1.5, 1.8, 'carpet', [0.9, 0.9, 0.8], false)] }; },
+  // Silpo: produce bins, green-labelled fridges, checkouts with orange stripe, bakery
+  produce(rng) { const w = 2.6, bx = [B(0, w, 0, 0.9, 0, 0.6, 'wood', [0.85, 0.65, 0.4]), B(0, w, 0.9, 1.0, 0.0, 0.9, 'bSilG', [0.9, 1, 0.9], false)]; const cols = [[0.85, 0.15, 0.1], [0.95, 0.65, 0.1], [0.3, 0.65, 0.2], [0.9, 0.8, 0.2], [0.8, 0.3, 0.1]]; for (let i = 0; i < 5; i++) bx.push(B(0.08 + i * 0.5, 0.52 + i * 0.5, 0.1, 0.8, 0.6, 0.75 + rng() * 0.1, 'carpet', cols[i], false)); return { w, d: 1.0, boxes: bx }; },
+  silFridge() { return { w: 2.6, d: 0.8, boxes: [B(0, 2.6, 0, 0.8, 0, 1.95, 'walltile', [0.8, 0.92, 1.0]), B(0.05, 2.55, 0.76, 0.84, 0.15, 1.8, 'dark', [0.4, 0.55, 0.7], false), B(0, 2.6, 0.2, 0.8, 1.95, 2.25, 'bSilG', [1, 1, 1], false), B(0.05, 2.55, 0.8, 0.86, 1.82, 1.9, 'bSilO', [1, 1, 1], false)] }; },
+  silCheckout() { return { w: 1.8, d: 0.9, boxes: [B(0, 1.8, 0, 0.9, 0, 0.9, 'dark', [0.28, 0.3, 0.32]), B(0, 1.8, 0, 0.9, 0.9, 0.95, 'dark', [0.08, 0.08, 0.09], false), B(0, 1.8, 0, 0.9, 0.55, 0.62, 'bSilO', [1, 1, 1], false), B(1.3, 1.7, 0.2, 0.6, 0.95, 1.25, 'dark', [0.12, 0.14, 0.16], false), B(0.8, 1.0, 0.05, 0.1, 1.9, 2.3, 'bSilG', [1, 1, 1], false)] }; },
+  bakery() { return { w: 2.4, d: 0.7, boxes: [B(0, 2.4, 0, 0.7, 0, 0.95, 'wood', [0.9, 0.75, 0.5]), B(0, 2.4, 0, 0.7, 0.95, 1.5, 'dark', [0.85, 0.92, 0.95], false), B(0.2, 0.7, 0.1, 0.6, 0.95, 1.12, 'carpet', [0.82, 0.58, 0.28], false), B(0.9, 1.5, 0.1, 0.6, 0.95, 1.1, 'carpet', [0.9, 0.7, 0.4], false), B(1.7, 2.2, 0.1, 0.6, 0.95, 1.15, 'carpet', [0.7, 0.45, 0.25], false)] }; },
+  silShelf(rng) { const p = PIECES.marketShelf(rng); p.boxes.push(B(0, p.w, 0, 0.55, 1.75, 1.95, 'bSilG', [1, 1, 1], false)); return p; },
+  // Epicentr: tall racks (yellow beams, green uprights), paint wall, lighting department, lumber
+  tallRack(rng) { const w = 2.8, bx = [B(0, 0.1, 0, 0.9, 0, 3.4, 'bEpiG', [1, 1, 1]), B(w - 0.1, w, 0, 0.9, 0, 3.4, 'bEpiG', [1, 1, 1]), B(0, w, 0.85, 0.9, 0, 3.4, 'dark', [0.55, 0.57, 0.6], false)]; for (let i = 0; i < 4; i++) { const y = 0.25 + i * 0.85; bx.push(B(0, w, 0, 0.9, y, y + 0.07, 'bEpiY', [1, 1, 1], false)); let a = 0.15; while (a < w - 0.5) { const ww = 0.35 + rng() * 0.45; if (a + ww > w - 0.12) break; bx.push(B(a, a + ww, 0.08, 0.8, y + 0.07, y + 0.07 + 0.35 + rng() * 0.3, 'carpet', [0.55 + rng() * 0.4, 0.45 + rng() * 0.3, 0.3 + rng() * 0.3], false)); a += ww + 0.08; } } return { w, d: 0.9, boxes: bx }; },
+  paintWall(rng) { const w = 3.0, bx = [B(0, w, 0, 0.5, 0, 2.2, 'dark', [0.82, 0.83, 0.85])]; const cols = [[0.9, 0.2, 0.15], [0.2, 0.45, 0.85], [0.95, 0.85, 0.2], [0.2, 0.65, 0.3], [0.95, 0.95, 0.95], [0.8, 0.45, 0.15]]; for (let r = 0; r < 4; r++) for (let i = 0; i < 7; i++) bx.push(B(0.1 + i * 0.4, 0.4 + i * 0.4, 0.4, 0.55, 0.15 + r * 0.5, 0.45 + r * 0.5, 'carpet', cols[(i + r * 2 + ((rng() * 3) | 0)) % 6], false)); return { w, d: 0.55, boxes: bx }; },
+  lightWall() { const bx = [B(0, 3.0, 0, 0.3, 0, 2.2, 'dark', [0.85, 0.86, 0.88])]; for (let i = 0; i < 5; i++) { const a = 0.1 + i * 0.57; bx.push(B(a, a + 0.4, 0.3, 0.55, 1.4 + (i % 2) * 0.3, 1.75 + (i % 2) * 0.3, 'bWhite', [1.2, 1.15, 0.9], false), B(a + 0.15, a + 0.25, 0.3, 0.4, 1.75 + (i % 2) * 0.3, 2.2, 'dark', PAL.dark, false)); } for (let i = 0; i < 5; i++) bx.push(B(0.1 + i * 0.57, 0.5 + i * 0.57, 0.3, 0.5, 0.4, 0.8, 'bWhite', [1.2, 1.2, 1.1], false)); return { w: 3.0, d: 0.55, boxes: bx }; },
+  lumber(rng) { const bx = []; for (let k = 0; k < 6; k++) bx.push(B(0, 2.4, 0, 1.0, 0.1 + k * 0.17, 0.25 + k * 0.17, 'wood', [0.85 + rng() * 0.2, 0.7 + rng() * 0.15, 0.5], false)); bx.push(B(0.1, 0.3, 0, 1.0, 0, 0.1, 'dark', PAL.dwood, false), B(2.1, 2.3, 0, 1.0, 0, 0.1, 'dark', PAL.dwood, false)); return { w: 2.4, d: 1.0, boxes: bx }; },
+  // Workplaces: open-space with desk islands + glass meeting room, warehouse docks / racks / forklift pallets, staff room with lockers + rest table
+  deskIsland(rng) { const bx = []; for (const o of [0, 1.5]) { bx.push(B(o, o + 1.4, 0, 0.75, 0.7, 0.75, 'wood', [1.0, 0.88, 0.7], false), B(o + 0.03, o + 0.08, 0.03, 0.72, 0, 0.7, 'dark', PAL.dark, false), B(o + 1.3, o + 1.35, 0.03, 0.72, 0, 0.7, 'dark', PAL.dark, false), B(o + 0.45, o + 0.95, 0.1, 0.14, 0.75, 1.15, 'dark', [0.08, 0.09, 0.1], false), B(o + 0.45, o + 0.9, 0.85, 1.3, 0, 0.5, 'dark', PAL.dark, false)); } return { w: 2.9, d: 1.3, boxes: bx }; },
+  glassWall() { return { w: 2.8, d: 0.08, boxes: [B(0, 2.8, 0, 0.08, 0, 0.1, 'dark', [0.3, 0.32, 0.34], false), B(0, 2.8, 0.02, 0.06, 0.1, 2.1, 'bWhite', [0.62, 0.8, 0.9], false), B(0, 0.06, 0, 0.08, 0, 2.1, 'dark', [0.3, 0.32, 0.34], false), B(2.74, 2.8, 0, 0.08, 0, 2.1, 'dark', [0.3, 0.32, 0.34], false)] }; },
+  waterCooler() { return { w: 0.4, d: 0.4, boxes: [B(0, 0.4, 0, 0.4, 0, 0.95, 'bWhite', [0.9, 0.92, 0.95]), B(0.08, 0.32, 0.08, 0.32, 0.95, 1.4, 'bWhite', [0.5, 0.75, 1.0], false)] }; },
+  dockRack(rng) { const w = 2.6, bx = [B(0, 0.08, 0, 0.8, 0, 2.7, 'dark', [0.16, 0.36, 0.7]), B(w - 0.08, w, 0, 0.8, 0, 2.7, 'dark', [0.16, 0.36, 0.7])]; for (let i = 0; i < 3; i++) { const y = 0.2 + i * 0.85; bx.push(B(0, w, 0, 0.8, y, y + 0.07, 'dark', [0.9, 0.5, 0.15], false), B(0.15 + rng() * 0.2, 1.1 + rng() * 0.3, 0.08, 0.72, y + 0.07, y + 0.6, 'wood', [0.78, 0.62, 0.42], false), B(1.35, 2.3, 0.08, 0.72, y + 0.07, y + 0.5, 'wood', [0.72, 0.58, 0.4], false)); } return { w, d: 0.8, boxes: bx }; },
+  crates(rng) { const bx = [B(0, 1.3, 0, 1.3, 0, 0.15, 'wood', PAL.wood)]; for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) bx.push(B(0.05 + i * 0.62, 0.62 + i * 0.62, 0.05 + j * 0.62, 0.62 + j * 0.62, 0.15, 0.75 + rng() * 0.3, 'wood', [0.8, 0.62, 0.4])); return { w: 1.3, d: 1.3, boxes: bx }; },
+  lockers() { const bx = []; for (let i = 0; i < 6; i++) bx.push(B(i * 0.45, i * 0.45 + 0.43, 0, 0.5, 0, 1.9, 'dark', [0.82, 0.74, 0.55]), B(i * 0.45 + 0.03, i * 0.45 + 0.4, 0.5, 0.52, 1.2, 1.28, 'dark', [0.4, 0.38, 0.32], false), B(i * 0.45 + 0.34, i * 0.45 + 0.38, 0.5, 0.54, 1.0, 1.12, 'dark', [0.25, 0.25, 0.25], false)); return { w: 2.7, d: 0.54, boxes: bx }; },
+  restTable() { return { w: 2.2, d: 1.4, boxes: [B(0.3, 1.9, 0.3, 1.1, 0.72, 0.78, 'dark', [0.55, 0.57, 0.6], false), B(0.4, 0.5, 0.4, 0.5, 0, 0.72, 'dark', PAL.dark, false), B(1.7, 1.8, 0.9, 1.0, 0, 0.72, 'dark', PAL.dark, false), B(0.4, 0.8, 0.0, 0.3, 0, 0.45, 'dark', PAL.dark, false), B(1.2, 1.6, 0.0, 0.3, 0, 0.45, 'dark', PAL.dark, false), B(0.4, 0.8, 1.1, 1.4, 0, 0.45, 'dark', PAL.dark, false), B(1.2, 1.6, 1.1, 1.4, 0, 0.45, 'dark', PAL.dark, false)] }; },
+  kettleBar() { return { w: 1.8, d: 0.6, boxes: [B(0, 1.8, 0, 0.6, 0, 0.9, 'walltile', [0.9, 0.9, 0.88]), B(0, 1.8, 0, 0.62, 0.9, 0.95, 'dark', [0.2, 0.2, 0.22], false), B(0.2, 0.5, 0.15, 0.4, 0.95, 1.2, 'bWhite', [0.9, 0.9, 0.95], false), B(1.0, 1.5, 0.1, 0.45, 0.95, 1.3, 'dark', [0.1, 0.1, 0.1], false)] }; },
+  coatRack() { return { w: 1.6, d: 0.2, boxes: [B(0, 1.6, 0, 0.04, 1.5, 1.56, 'dark', PAL.dark, false), B(0.1, 0.45, 0.02, 0.2, 0.7, 1.5, 'dark', [0.2, 0.22, 0.3], false), B(0.6, 0.95, 0.02, 0.2, 0.75, 1.5, 'dark', [0.16, 0.2, 0.16], false), B(1.1, 1.45, 0.02, 0.2, 0.7, 1.5, 'dark', [0.3, 0.2, 0.15], false)] }; },
   plant() { return { w: 0.5, d: 0.5, boxes: [B(0.1, 0.4, 0.1, 0.4, 0, 0.35, 'dark', [0.5, 0.3, 0.2], false), B(0.0, 0.5, 0.0, 0.5, 0.35, 1.3, 'carpet', [0.2, 0.55, 0.25], false)] }; },
 };
 const PLAN = {
+  mcd: ['mcdCounter', 'mcdKiosk', 'redBooth', 'redBooth', 'poster:pMcdI', 'yellowTable', 'redBooth', 'mcdKiosk', 'yellowTable', 'plant'],
+  puzata: ['servingLine', 'embroidery', 'woodTable', 'woodTable', 'poster:pPuzI', 'carvedShelf', 'woodTable', 'plant'],
+  silpo: ['produce', 'silFridge', 'silShelf', 'produce', 'silCheckout', 'poster:pSilI', 'silShelf', 'silCheckout', 'bakery', 'silShelf', 'plant'],
+  epicentr: ['tallRack', 'paintWall', 'tallRack', 'lightWall', 'poster:pEpiI', 'lumber', 'tallRack', 'checkout', 'tallRack', 'pallet'],
+  wkoffice: ['deskIsland', 'poster:pOffI', 'deskIsland', 'glassWall', 'cabinet', 'waterCooler', 'deskIsland', 'plant'],
+  wkdepot: ['dockRack', 'crates', 'poster:pWarE', 'dockRack', 'crates', 'pallet', 'barrel', 'workbench'],
+  staff: ['lockers', 'restTable', 'poster:pStaI', 'kettleBar', 'coatRack', 'bench'],
   market: ['marketShelf', 'fridgeWall', 'marketShelf', 'checkout', 'marketShelf', 'marketShelf', 'checkout', 'plant'],
   fastfood: ['tray', 'diningTable', 'diningTable', 'diningTable', 'diningTable', 'plant'],
   dining: ['bar', 'diningTable', 'diningTable', 'diningTable', 'diningTable', 'plant'],
@@ -145,7 +197,7 @@ const PLAN = {
   kitchen: ['counter', 'fridge', 'table', 'shelf'],
   bathroom: ['bathtub', 'toilet', 'sink'],
   office: ['desk', 'desk', 'cabinet', 'desk', 'plant', 'cabinet', 'desk'],
-  meeting: ['meetTable', 'shelf', 'plant', 'cabinet'],
+  meeting: ['meetTable', 'poster:pOffI', 'shelf', 'plant', 'cabinet'],
   shop: ['shopShelf', 'shopShelf', 'shopCounter', 'shopShelf', 'shopShelf', 'plant'],
   cafe: ['bar', 'cafeTable', 'cafeTable', 'cafeTable', 'cafeTable', 'plant'],
   hallway: ['bench', 'console_', 'plant'],
@@ -158,7 +210,7 @@ export function furnish(type, R, ctx) {
   const maxN = Math.min(names.length, Math.floor((W + H) / 2.2) + 1);
   const sides = [0, 1, 2, 3];
   for (let k = 0, n = 0; k < names.length && n < maxN; k++) {
-    const pc = PIECES[names[k]](rng);
+    const nm = names[k], pc = nm.startsWith('poster:') ? PIECES.poster(nm.slice(7), 1.5 + rng() * 0.3) : PIECES[nm](rng);
     // random start side order
     const order = sides.slice(); for (let i = 3; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [order[i], order[j]] = [order[j], order[i]]; }
     let placed = false;

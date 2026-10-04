@@ -1,5 +1,6 @@
 // Procedural textures (canvas 2D). Nothing is downloaded: all facade/road/ground textures are generated at start-up.
 import * as THREE from 'three';
+import { designImage } from './design.js';
 
 function rng(seed) { let s = seed >>> 0 || 1; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
 function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
@@ -218,8 +219,9 @@ export function waterNormal() {
 // ---------------------------------------------------------------- interior atlas (4x4 cells of 256 px) and door texture
 export const INT_RECT = {};   // name -> [u0, v0, du, dv]
 export function makeInteriorAtlas() {
-  const S = 1024, C = 256, [c, x] = mk(S, S); const r = rng(123);
-  const cell = (name, col, row, fn) => { x.save(); x.translate(col * C, row * C); x.beginPath(); x.rect(0, 0, C, C); x.clip(); fn(); x.restore(); INT_RECT[name] = [col / 4, 1 - (row + 1) / 4, 0.25, 0.25]; };
+  // 1024 x 1664: rows 0-3 procedural 256 px cells; y 1024..1152 brand paints (8 x 128, design pack); y 1152..1662 reference pictures (4 x 3 of 256x170)
+  const S = 1024, C = 256, H = 1664, [c, x] = mk(S, H); const r = rng(123);
+  const cell = (name, col, row, fn) => { x.save(); x.translate(col * C, row * C); x.beginPath(); x.rect(0, 0, C, C); x.clip(); fn(); x.restore(); INT_RECT[name] = [col / 4, 1 - (row + 1) * C / H, 0.25, C / H]; };
   const noise = (a, seed) => { const id = x.getImageData(0, 0, S, S); void id; };
   cell('plaster', 0, 0, () => { x.fillStyle = '#e9e2d2'; x.fillRect(0, 0, C, C); for (let i = 0; i < 500; i++) { x.fillStyle = `rgba(${r() < .5 ? '255,255,255' : '90,70,40'},0.04)`; x.fillRect(r() * C, r() * C, 3 + r() * 14, 3 + r() * 14); }
     x.fillStyle = '#8c7b66'; x.fillRect(0, C - 20, C, 20); x.fillStyle = '#b3a38b'; x.fillRect(0, C - 24, C, 4); x.fillStyle = '#f5f1e6'; x.fillRect(0, 0, C, 8); });
@@ -246,6 +248,13 @@ export function makeInteriorAtlas() {
   cell('ktile', 2, 3, () => { for (let yy = 0; yy < 4; yy++) for (let xx = 0; xx < 4; xx++) { x.fillStyle = (xx + yy) % 2 ? '#c9774f' : '#b86a44'; x.fillRect(xx * 64 + 2, yy * 64 + 2, 60, 60); } x.fillStyle = '#8a7a68'; });
   cell('brick', 3, 3, () => { x.fillStyle = '#c8bfae'; x.fillRect(0, 0, C, C); for (let yy = 0; yy < 12; yy++) for (let xx = -1; xx < 6; xx++) { const v = (r() - .5) * 34; x.fillStyle = `rgb(${150 + v | 0},${74 + v * .6 | 0},${54 + v * .5 | 0})`; x.fillRect(xx * 44 + (yy % 2) * 22 + 1, yy * 21 + 1, 42, 19); } });
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 1;
+  // design pack cells: flat fallback colours first, replaced by the compressed pack sheets when they arrive
+  const BR = [['bMcdR', '#da291c'], ['bMcdY', '#ffc72c'], ['bPuz', '#3e6e3e'], ['bSilG', '#008c46'], ['bSilO', '#f27820'], ['bEpiY', '#f4c418'], ['bEpiG', '#006e37'], ['bWhite', '#f5f5f5']];
+  BR.forEach(([n, col], i) => { x.fillStyle = col; x.fillRect(i * 128, 1024, 128, 128); INT_RECT[n] = [i * 128 / S, 1 - 1152 / H, 128 / S, 128 / H]; });
+  const PO = ['pMcdE', 'pMcdI', 'pPuzE', 'pPuzI', 'pSilE', 'pSilI', 'pEpiE', 'pEpiI', 'pOffE', 'pOffI', 'pWarE', 'pStaI'], pc = ['#7a3a30', '#8a5a40', '#2f5a35', '#7a5a3a', '#2d6a4a', '#4a6a5a', '#8a8a30', '#6a6a50', '#5a6a7a', '#6a7280', '#707478', '#807d78'];
+  PO.forEach((n, i) => { const px = (i % 4) * 256, py = 1152 + (i >> 2) * 170; x.fillStyle = pc[i]; x.fillRect(px, py, 256, 170); INT_RECT[n] = [px / S, 1 - (py + 170) / H, 256 / S, 170 / H]; });
+  designImage('brand.jpg').then(im => { if (im) { x.drawImage(im, 0, 1024, 1024, 128); t.needsUpdate = true; } });
+  designImage('posters.jpg').then(im => { if (im) { x.drawImage(im, 0, 1152, 1024, 510); t.needsUpdate = true; } });
   return t;
 }
 // door atlas: TL leaf, TR frame, BL sign

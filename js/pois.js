@@ -2,13 +2,14 @@
 // themed interiors (via pl.poi), map markers, tracking beacon, "Места" panel.
 import * as THREE from 'three';
 import { $, UI, el, tap, toast, panel } from './ui.js';
+import { designImage, FacadeKits, KIT_FOR } from './design.js';
 
 export const CAT_INFO = {
-  puzata:   { icon: '🍲', brand: 0xd9a21b, theme: 'dining',   svc: 'shop' },
-  mcd:      { icon: '🍔', brand: 0xda291c, theme: 'fastfood', svc: 'shop' },
-  silpo:    { icon: '🛒', brand: 0xf58220, theme: 'market',   svc: 'shop' },
+  puzata:   { icon: '🍲', brand: 0x3e6e3e, theme: 'puzata',   svc: 'shop' },
+  mcd:      { icon: '🍔', brand: 0xda291c, theme: 'mcd', svc: 'shop' },
+  silpo:    { icon: '🛒', brand: 0x008c46, theme: 'silpo',   svc: 'shop' },
   atb:      { icon: '🛒', brand: 0x2f6fc0, theme: 'market',   svc: 'shop' },
-  epicentr: { icon: '🛠', brand: 0xf26b21, theme: 'diy',      svc: 'shop' },
+  epicentr: { icon: '🛠', brand: 0xf4c418, theme: 'epicentr',      svc: 'shop' },
   sushi:    { icon: '🍣', brand: 0xc4143c, theme: 'dining',   svc: 'shop' },
   dvornik:  { icon: '🧹', brand: 0x4a8f4e, theme: 'util',     svc: 'job' },
   gruzchik: { icon: '📦', brand: 0x9b7b4b, theme: 'depot',    svc: 'job' },
@@ -20,6 +21,35 @@ export const CAT_INFO = {
 };
 export const GROUPS = { food: ['🍽', 'Еда'], shop: ['🛒', 'Магазины'], job: ['💼', 'Работа'], special: ['⛓', 'СИЗО'] };
 const hex2rgb = h => [(h >> 16 & 255) / 255, (h >> 8 & 255) / 255, (h & 255) / 255];
+
+
+// sign boards: pack palettes (design pack manifest) + pack paint texture as the background; the brand name is plain text, not an official logo
+function drawSign(g, c, img) {
+  const key = c.key, W = 512, H = 128, col = c.brand === undefined ? '#555' : '#' + c.brand.toString(16).padStart(6, '0');
+  const tile = (cell, alpha = 0.55) => { if (!img) return; g.save(); g.globalAlpha = alpha; for (let x = 0; x < W; x += 128) g.drawImage(img, cell * 128, 0, 128, 128, x, 0, 128, 128); g.restore(); };
+  const text = (str, x, y, fill, maxW, fs = 64, align = 'center') => { g.fillStyle = fill; g.textAlign = align; g.textBaseline = 'middle'; g.font = `bold ${fs}px sans-serif`; while (g.measureText(str).width > maxW && fs > 22) { fs -= 4; g.font = `bold ${fs}px sans-serif`; } g.fillText(str, x, y); };
+  g.clearRect(0, 0, W, H);
+  if (key === 'mcd') {
+    g.fillStyle = '#da291c'; g.fillRect(0, 0, W, H); tile(0, 0.5);
+    g.strokeStyle = '#ffc72c'; g.lineWidth = 14; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); const cx = 84; g.moveTo(cx - 44, 104); g.lineTo(cx - 44, 48); g.bezierCurveTo(cx - 44, 6, cx - 6, 6, cx, 56); g.bezierCurveTo(cx + 6, 6, cx + 44, 6, cx + 44, 48); g.lineTo(cx + 44, 104); g.stroke();
+    text("McDonald's", 300, 66, '#fff', 350, 62); g.fillStyle = '#ffc72c'; g.fillRect(0, H - 10, W, 10);
+  } else if (key === 'puzata') {
+    g.fillStyle = '#3e6e3e'; g.fillRect(0, 0, W, H); tile(2, 0.6);
+    g.strokeStyle = '#c4a46a'; g.lineWidth = 9; g.strokeRect(6, 6, W - 12, H - 12); g.strokeStyle = '#6b2a1a'; g.lineWidth = 3; g.strokeRect(15, 15, W - 30, H - 30);
+    text('ПУЗАТА ХАТА', 256, 58, '#f4e6c8', 400, 56);
+    for (let x = 22; x < W - 22; x += 20) { g.fillStyle = (x / 20) % 2 ? '#c8261c' : '#f4e6c8'; g.fillRect(x, H - 30, 12, 10); }
+  } else if (key === 'silpo') {
+    g.fillStyle = '#008c46'; g.fillRect(0, 0, W, H); tile(3, 0.55);
+    g.fillStyle = '#f27820'; g.fillRect(0, H - 26, W, 14); g.strokeStyle = '#f5f5f5'; g.lineWidth = 5; g.strokeRect(5, 5, W - 10, H - 10);
+    text('СІЛЬПО', 256, 52, '#f5f5f5', 400, 66);
+  } else if (key === 'epicentr') {
+    g.fillStyle = '#f4c418'; g.fillRect(0, 0, W, H); tile(5, 0.5); g.fillStyle = '#006e37'; g.fillRect(0, H - 32, W, 32);
+    text('ЕПІЦЕНТР', 256, 48, '#1a1a1a', 420, 66); g.fillStyle = '#f4c418'; g.fillRect(0, H - 32, W, 5);
+  } else {
+    g.fillStyle = col; g.fillRect(0, 0, W, H); g.strokeStyle = '#fff'; g.lineWidth = 8; g.strokeRect(6, 6, 500, 116);
+    text(c.sign, 256, 68, (key === 'taxi') ? '#1a1a1a' : '#fff', 450, 64);
+  }
+}
 
 export class PoiLayer {
   constructor(world, scene, ctx) {
@@ -45,21 +75,19 @@ export class PoiLayer {
   }
   // ---------------------------------------------------------------- signs
   _initSigns() {
+    this.kits = new FacadeKits(this.scene, this.ctx.IS_TOUCH ? 14 : 28);
     this.signMeshes = this.cats.map(c => {
       const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128; const g = cv.getContext('2d');
-      const col = c.brand === undefined ? '#555' : '#' + c.brand.toString(16).padStart(6, '0');
-      g.fillStyle = col; g.fillRect(0, 0, 512, 128); g.strokeStyle = '#fff'; g.lineWidth = 8; g.strokeRect(6, 6, 500, 116);
-      g.fillStyle = (c.key === 'taxi' || c.key === 'puzata') ? '#1a1a1a' : '#fff'; g.font = 'bold 64px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      let fs = 64; g.font = `bold ${fs}px sans-serif`; while (g.measureText(c.sign).width > 450 && fs > 24) { fs -= 4; g.font = `bold ${fs}px sans-serif`; }
-      g.fillText(c.sign, 256, 68);
       const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      const draw = (img) => { drawSign(g, c, img); tex.needsUpdate = true; };
+      draw(null); designImage('brand.jpg').then(im => { if (im) draw(im); });
       const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }), 60);
       m.count = 0; m.frustumCulled = false; m.renderOrder = 2; this.scene.add(m); return m;
     });
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(); this._p = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
   }
   _updateSigns(P) {
-    const cnt = this.cats.map(() => 0), R2 = this.signR * this.signR; let tot = 0;
+    const cnt = this.cats.map(() => 0), R2 = this.signR * this.signR; let tot = 0; this.kits.begin();
     for (const poi of this.items) {
       const pl = poi.pl; if (!pl || !pl.tile || !pl.tile.alive) continue;
       const d = pl.door, dx = d.mx - P.x, dz = d.mz - P.z; if (dx * dx + dz * dz > R2 || tot >= this.maxSign) continue;
@@ -67,7 +95,9 @@ export class PoiLayer {
       const w = poi.key === 'sizo' ? 5 : 3.6; const y = (pl.F0 || 0) + 2.75 + (poi.key === 'sizo' ? 0.4 : 0);
       this._q.setFromAxisAngle(this._up, Math.atan2(d.nx, d.nz)); this._p.set(d.mx + d.nx * 0.09, y + 0.45, d.mz + d.nz * 0.09); this._s.set(w, w / 4, 1);
       this._m.compose(this._p, this._q, this._s); m.setMatrixAt(n, this._m); cnt[poi.ci]++; tot++;
+      if (KIT_FOR[poi.key]) this.kits.add(poi.key, d, pl.F0 || 0);
     }
+    this.kits.end();
     this.signMeshes.forEach((m, i) => { m.count = cnt[i]; m.instanceMatrix.needsUpdate = true; });
   }
   // ---------------------------------------------------------------- beacon + tracking

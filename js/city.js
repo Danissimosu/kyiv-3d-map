@@ -2,6 +2,7 @@
 // Only a nearby subset is rendered: pedestrians (instanced low-poly humanoids, walk cycle in the vertex shader),
 // people inside active interiors, instanced cars lane-following the road polylines, and distant traffic as moving light points.
 import * as THREE from 'three';
+import { CarFleet, CAR_MODELS, pickCarModel } from './design.js';
 
 const CLS_SPEED = [0, 5, 8.5, 11, 14, 17, 21];            // m/s by road class (0 = footway ... 6 = motorway/trunk)
 const CLS_DENS = [0, 7, 13, 22, 30, 40, 52];               // cars per km of road, by class (before the local-population factor)
@@ -101,12 +102,8 @@ export class City {
     geo.setAttribute('aPants', new THREE.InstancedBufferAttribute(this.pantsArr = new Float32Array(N * 3), 3));
     this.scene.add(m); return m;
   }
-  _carMesh() {
-    const geo = carGeometry(), N = 200;
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 });
-    const m = new THREE.InstancedMesh(geo, mat, N); m.count = 0; m.frustumCulled = false; m.castShadow = false;
-    m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3); this.scene.add(m); return m;
-  }
+  _carMesh() { this.fleet = new CarFleet(this.scene, this.mob ? 64 : 128); return this.fleet.meshes[0]; }   // 6 instanced models (design pack), see design.js
+  _paint(c) { c.factory = Math.random() < CAR_MODELS[c.model].factory; if (c.factory) c.col.setHex(0xffffff); }   // factory paint = pack texture of the model; otherwise a neutral silver base tinted by c.col
   _farPoints() {
     const N = 420, g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3)); g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
     g.setDrawRange(0, 0);
@@ -208,15 +205,15 @@ export class City {
     const pt = this._randomPoint(P, parked ? 20 : this.carR * 0.4, this.carR, parked ? 1 : 1, parked ? 2 : 6); if (!pt) return false;
     const p = pt.path; if (p.cls < 1 || p.cls > 6 || (p.w < 3.2 && !parked)) return false;
     const dens = CLS_DENS[p.cls]; if (Math.random() > 0.2 + dens / 60) return false;
-    const c = { path: p, s: pt.s, dir: Math.random() < 0.5 ? 1 : -1, speed: 0, vmax: CLS_SPEED[p.cls] * rnd(0.8, 1.1), col: new THREE.Color(pick(CAR_COLS)), wait: 0, x: 0, y: 0, z: 0, yaw: 0, parked, hp: 100, kind: Math.random() < 0.12 ? 'taxi' : 'car' };
-    if (c.kind === 'taxi') c.col.set(0xf1c40f);
+    const c = { path: p, s: pt.s, dir: Math.random() < 0.5 ? 1 : -1, speed: 0, vmax: CLS_SPEED[p.cls] * rnd(0.8, 1.1), col: new THREE.Color(pick(CAR_COLS)), wait: 0, x: 0, y: 0, z: 0, yaw: 0, parked, hp: 100, kind: Math.random() < 0.12 ? 'taxi' : 'car', model: pickCarModel() };
+    this._paint(c); if (c.kind === 'taxi') { c.model = 5; c.factory = false; c.col.set(0xf1c40f); }
     if (parked) { c.s = pt.s; c.off = (p.w / 2 + 1.1) * (Math.random() < 0.5 ? 1 : -1); } else { c.off = p.oneway ? 0 : Math.max(1.4, p.w / 4); c.speed = c.vmax * 0.7; }
     this.cars.push(c); this._placeCar(c); return true;
   }
   spawnPolice(P) {   // a police car on a road 80-200 m away, driving along the road graph towards this.chaseTarget
     const pt = this._randomPoint(P, 80, Math.min(this.carR, 200), 2, 6) || this._randomPoint(P, 50, this.carR, 1, 6); if (!pt) return null;
     const p = pt.path, T = this.chaseTarget || P, o = {};
-    const c = { path: p, s: pt.s, dir: 1, speed: 0, vmax: 21, col: new THREE.Color(0xffffff), wait: 0, x: 0, y: 0, z: 0, yaw: 0, parked: false, hp: 100, kind: 'police', police: true, off: p.oneway ? 0 : Math.max(1.4, p.w / 4) };
+    const c = { path: p, s: pt.s, dir: 1, speed: 0, vmax: 21, col: new THREE.Color(0xffffff), wait: 0, x: 0, y: 0, z: 0, yaw: 0, parked: false, hp: 100, kind: 'police', police: true, model: 3, factory: false, off: p.oneway ? 0 : Math.max(1.4, p.w / 4) };
     City.at(p, 0, 1, 0, o); const d0 = Math.hypot(o.x - T.x, o.z - T.z); City.at(p, p.len, 1, 0, o); const d1 = Math.hypot(o.x - T.x, o.z - T.z);
     c.dir = d1 < d0 ? 1 : -1; if (p.oneway) c.dir = 1; c.speed = 8; this.cars.push(c); this._placeCar(c); return c;
   }
@@ -350,14 +347,15 @@ export class City {
     for (const k of ['aAnim', 'aShirt', 'aPants']) pm.geometry.attributes[k].needsUpdate = true;
     this.stats.peds = n;
     // cars
-    const cm = this.carMesh; n = 0;
+    const fl = this.fleet; n = 0; fl.begin();
     for (const c of this.cars) {
-      if (c.hidden || n >= cm.instanceMatrix.count) continue;
+      if (c.hidden) continue;
       let pitch = 0; if (!c.path.y && c.pitchOn !== false) { const h2 = this.world.heightAt(c.x + Math.sin(c.yaw) * 1.8, c.z + Math.cos(c.yaw) * 1.8), h1 = this.world.heightAt(c.x - Math.sin(c.yaw) * 1.8, c.z - Math.cos(c.yaw) * 1.8); pitch = Math.atan2(h1 - h2, 3.6); }
       q.setFromAxisAngle(up, c.yaw); qa.setFromAxisAngle(xa, pitch * 0.8 + (c.tilt || 0)); q.multiply(qa);   // geometry front is +z
-      pv.set(c.x, c.y, c.z); sv.set(1, 1, 1); M.compose(pv, q, sv); cm.setMatrixAt(n, M); cm.setColorAt(n, c.dmg ? col.copy(c.col).multiplyScalar(0.7) : c.col); n++;
+      pv.set(c.x, c.y, c.z); sv.set(1, 1, 1); M.compose(pv, q, sv);
+      if (fl.add(c.model | 0, c.factory, c.dmg ? col.copy(c.col).multiplyScalar(0.7) : c.col, M)) n++;
     }
-    cm.count = n; cm.instanceMatrix.needsUpdate = true; if (cm.instanceColor) cm.instanceColor.needsUpdate = true; this.stats.cars = n;
+    fl.end(); this.stats.cars = n;
     // distant traffic as light points
     const pos = this.farPts.geometry.attributes.position, colA = this.farPts.geometry.attributes.color; n = 0;
     for (const f of this.far) { if (n >= pos.count) break; pos.setXYZ(n, f.x, f.y, f.z); if (f.col) colA.setXYZ(n, 1, 0.25, 0.2); else colA.setXYZ(n, 1, 0.95, 0.75); n++; }
