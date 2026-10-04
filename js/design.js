@@ -2,6 +2,7 @@
 // (McDonald's / Puzata Hata / Silpo / Epicentr + office / warehouse job points) and the sheets used by signs and interiors.
 // Assets are compressed sheets from tools/build_design_assets.py (assets/design/*.jpg). Pack images are AI references, not official brand material.
 import * as THREE from 'three';
+import { NIGHT, coneGeometry, additive, coneVS, coneFS } from './fx.js';
 
 const BASE = 'assets/design/';
 const imgCache = {};
@@ -26,7 +27,7 @@ class MB {
       this.p.push(P.getX(j), P.getY(j), P.getZ(j)); this.n.push(N.getX(j), N.getY(j), N.getZ(j)); this.c.push(col[0], col[1], col[2]);
       let u = U.getX(j), v = U.getY(j);
       if (o.uv0) { u = o.uv0[0]; v = o.uv0[1]; } else if (o.cell) { const [k, cols] = o.cell; u = (k + 0.06 + u * 0.88) / cols; v = 0.06 + v * 0.88; }
-      this.u.push(u, v); this.b.push(o.body ? 1 : 0);
+      this.u.push(u, v); this.b.push(o.body ? 1 : (o.lamp || 0));
     }
     for (const x of geo.index.array) this.i.push(x + this.k); this.k += n;
   }
@@ -71,7 +72,7 @@ const hex = h => [(h >> 16 & 255) / 255, (h >> 8 & 255) / 255, (h & 255) / 255];
 function buildCar(i) {
   const B = new MB(), M = CAR_MODELS[i];
   const body = (g) => B.add(g, WHT, { body: true });
-  const dark = (g, c = BLACK) => B.add(g, c, { uv0: WHITE_UV });
+  const dark = (g, c = BLACK) => B.add(g, c, { uv0: WHITE_UV, lamp: c === HEAD ? 2 : c === TAIL ? 3 : 0 });
   const bx = (w, h, d, x, y, z, c, rot) => dark(boxG(w, h, d, x, y, z, ...(rot || [])), c);
   const wheels = (W, L, zf, zr) => { for (const sx of [-1, 1]) for (const z of [zf, zr]) { bx(0.24, 0.62, 0.62, sx * (W / 2 - 0.1), 0.31, z, [0.05, 0.05, 0.05]); bx(0.27, 0.34, 0.34, sx * (W / 2 - 0.1), 0.31, z, [0.62, 0.64, 0.66]); } };
   // spec: W,L, body height/centre, cabin hull params, details
@@ -127,25 +128,29 @@ export class CarFleet {
     this.cap = cap; this.scene = scene;
     const mat = this.mat = new THREE.MeshStandardMaterial({ map: designTex('paints.jpg'), vertexColors: true, roughness: 0.42, metalness: 0.3 });
     mat.onBeforeCompile = s => {
-      s.vertexShader = 'attribute vec2 aCell; attribute float aBody;\n' + s.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>\n#ifdef USE_MAP\n if (aBody > 0.5) vMapUv = (vMapUv * 0.9 + 0.05) * 0.25 + aCell;\n#endif`);
+      s.uniforms.uNight = NIGHT;
+      s.vertexShader = 'attribute vec2 aCell; attribute float aBody; varying float vLamp;\n' + s.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>\n vLamp = aBody > 1.5 ? aBody - 1.0 : 0.0;\n#ifdef USE_MAP\n if (aBody > 0.5 && aBody < 1.5) vMapUv = (vMapUv * 0.9 + 0.05) * 0.25 + aCell;\n#endif`);
+      s.fragmentShader = 'varying float vLamp; uniform float uNight;\n' + s.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n if (vLamp > 0.5) totalEmissiveRadiance += (vLamp < 1.5 ? vec3(1.0, 0.95, 0.8) * (0.25 + 2.6 * uNight) : vec3(1.0, 0.07, 0.04) * (0.12 + 1.3 * uNight));`);
     };
     mat.customProgramCacheKey = () => 'kyivCars';
+    this.cones = new THREE.InstancedMesh(coneGeometry(), additive(coneVS, coneFS, 0xffffff), cap * 2); this.cones.count = 0; this.cones.frustumCulled = false; this.cones.visible = false; this.cones.renderOrder = 4; scene.add(this.cones); this._cm = new THREE.Matrix4(); this._lm = new THREE.Matrix4().compose(new THREE.Vector3(0, 0.08, 2.2), new THREE.Quaternion(), new THREE.Vector3(1, 1, 11));
     this.meshes = CAR_MODELS.map((m, i) => {
       const g = buildCar(i); g.setAttribute('aCell', new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2));
       const im = new THREE.InstancedMesh(g, mat, cap); im.count = 0; im.frustumCulled = false; im.castShadow = false;
       im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3); scene.add(im); return im;
     });
   }
-  begin() { for (const m of this.meshes) m.count = 0; this.total = 0; }
+  begin() { for (const m of this.meshes) m.count = 0; this.total = 0; this.cones.count = 0; this.cones.visible = NIGHT.value > 0.05; }
   // cell: paint cell index (-1 = neutral silver, tinted by `col`)
-  add(model, factory, col, M) {
+  add(model, factory, col, M, lit = true) {
     const m = this.meshes[model]; if (!m || m.count >= this.cap) return false;
     const i = m.count++, cell = factory ? CAR_MODELS[model].cell : 3;
     m.setMatrixAt(i, M); const a = m.geometry.attributes.aCell; a.setXY(i, (cell % 4) / 4, 1 - ((cell >> 2) + 1) / 4);
     if (factory) m.instanceColor.setXYZ(i, col.r, col.g, col.b); else m.instanceColor.setXYZ(i, col.r * 1.3, col.g * 1.3, col.b * 1.3);
-    this.total++; return true;
+    this.total++; if (lit && this.cones.visible && this.cones.count < this.cap * 2 - 1) this.cones.setMatrixAt(this.cones.count++, this._cm.multiplyMatrices(M, this._lm));
+    return true;
   }
-  end() { for (const m of this.meshes) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; m.geometry.attributes.aCell.needsUpdate = true; } }
+  end() { this.cones.instanceMatrix.needsUpdate = true; for (const m of this.meshes) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; m.geometry.attributes.aCell.needsUpdate = true; } }
 }
 
 // ---------------------------------------------------------------- facade kits (door-local frame: x along the wall, y up from the door sill, z outward)

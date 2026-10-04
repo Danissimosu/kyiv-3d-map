@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { InteriorManager, planBuilding, sArea, offsetRing, DOOR_W, DOOR_H } from './interior.js';
+import { patchFacadeNight } from './fx.js';
 import { pbrMaps, makeDoorTexture, DOOR_RECT, makeFacadeTextures, FACADE_PROPS, makeRoofTextures, makeGroundTextures, roadTexture, waterNormal } from './textures.js';
 
 const FLOOR_H = 3.1, GF_H = 4.2, CELL = 32;
@@ -54,7 +55,8 @@ export class World {
     this.facadeTex = makeFacadeTextures();
     const PBR = opts.pbr !== false, ns = opts.normalScale ?? 1.0;
     this.facadeMat = this.facadeTex.map((t, i) => { const m = new THREE.MeshStandardMaterial({ map: t, vertexColors: true, ...FACADE_PROPS[i] });
-      if (PBR) { const p = pbrMaps(t, { strength: 2.4, rLo: 0.28, rHi: 1.0 }); m.normalMap = p.normalMap; m.roughnessMap = p.roughnessMap; m.normalScale.set(ns, ns); m.roughness = Math.min(1, FACADE_PROPS[i].roughness * 1.05); } return m; });
+      if (PBR) { const p = pbrMaps(t, { strength: 2.4, rLo: 0.28, rHi: 1.0 }); m.normalMap = p.normalMap; m.roughnessMap = p.roughnessMap; m.normalScale.set(ns, ns); m.roughness = Math.min(1, FACADE_PROPS[i].roughness * 1.05); }
+      if (t.userData.winMask) patchFacadeNight(m, t.userData.winMask); return m; });
     const rt = makeRoofTextures();
     this.roofMat = [new THREE.MeshStandardMaterial({ map: rt[0], vertexColors: true, roughness: 0.95 }),
                     new THREE.MeshStandardMaterial({ map: rt[1], vertexColors: true, roughness: 0.5, metalness: 0.3 })];
@@ -269,7 +271,7 @@ export class World {
     // trees + lamps
     const tg = new THREE.Group(); t.treeGroup = tg;
     if (d.t && d.t.length) this._buildTrees(t, d.t, tg);
-    if (d.l && d.l.length) { const keepL = []; for (let i = 0; i < d.l.length; i += 2) if (this.lampKeep >= 1 || hash(d.l[i] * 0.37 + d.l[i + 1]) < this.lampKeep) keepL.push(d.l[i], d.l[i + 1]); d.l = keepL; const n = d.l.length / 2, im = new THREE.InstancedMesh(this.lampGeo, this.lampMat, n), m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
+    if (d.l && d.l.length) { const keepL = []; for (let i = 0; i < d.l.length; i += 2) if (this.lampKeep >= 1 || hash(d.l[i] * 0.37 + d.l[i + 1]) < this.lampKeep) keepL.push(d.l[i], d.l[i + 1]); d.l = keepL; t.lampPos = d.l; const n = d.l.length / 2, im = new THREE.InstancedMesh(this.lampGeo, this.lampMat, n), m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
       for (let i = 0; i < n; i++) { const x = d.l[2 * i], z = d.l[2 * i + 1]; this.addPole(key, x, z, 0.2); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), hash(x * 7 + z) * 6.28); p.set(x, this.heightAt(x, z), z); m.compose(p, q, s); im.setMatrixAt(i, m); }
       im.castShadow = this.shadows; im.frustumCulled = false; tg.add(im); }
     this.scene.add(group); this.scene.add(tg);

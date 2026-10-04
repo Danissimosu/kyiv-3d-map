@@ -27,6 +27,9 @@ function streaks(ctx, w, h, seed, n = 18, col = 'rgba(40,30,20,0.10)') {
     ctx.fillStyle = g; ctx.fillRect(x, 0, ww, h);
   }
 }
+let EM = null;   // emissive mask context (r = glass that can light up at night, g = always-lit shop glass) filled while a facade is drawn
+function emRect(x, y, w, h, g = 0) { if (!EM) return; EM.fillStyle = `rgb(255,${g ? 255 : 0},0)`; EM.fillRect(x, y, w, h); }
+function emClear(x, y, w, h) { if (!EM) return; EM.fillStyle = '#000'; EM.fillRect(x, y, w, h); }
 // window: x,y,w,h in px
 function win(ctx, x, y, w, h, o = {}) {
   const frame = o.frame || '#f2efe6', fw = o.fw || Math.max(4, w * 0.09);
@@ -35,8 +38,9 @@ function win(ctx, x, y, w, h, o = {}) {
   const g = ctx.createLinearGradient(x, y, x + w, y + h);
   g.addColorStop(0, o.g0 || '#7f9bb0'); g.addColorStop(0.45, o.g1 || '#3b4d5e'); g.addColorStop(1, o.g2 || '#27323f');
   ctx.fillStyle = g; ctx.fillRect(x + fw, y + fw, w - 2 * fw, h - 2 * fw);
+  emRect(x + fw, y + fw, w - 2 * fw, h - 2 * fw);
   ctx.fillStyle = frame;
-  if (o.cross !== false) { ctx.fillRect(x + w / 2 - fw / 2, y, fw, h); if (h > w * 1.2) ctx.fillRect(x, y + h * 0.33, w, fw); }
+  if (o.cross !== false) { ctx.fillRect(x + w / 2 - fw / 2, y, fw, h); emClear(x + w / 2 - fw / 2, y, fw, h); if (h > w * 1.2) { ctx.fillRect(x, y + h * 0.33, w, fw); emClear(x, y + h * 0.33, w, fw); } }
   // reflection glint
   ctx.fillStyle = 'rgba(255,255,255,0.10)';
   ctx.beginPath(); ctx.moveTo(x + fw, y + h - fw); ctx.lineTo(x + w * 0.55, y + fw); ctx.lineTo(x + w * 0.8, y + fw); ctx.lineTo(x + fw + w * 0.2, y + h - fw); ctx.fill();
@@ -72,7 +76,7 @@ const FACADES = {
     win(x, 66, 70, 124, 112, { frame: '#e9e6dc', sill: '#aaa69a' });
     // loggia
     x.fillStyle = '#6c6a63'; x.fillRect(310, 52, 148, 160); x.fillStyle = '#8f98a0'; x.fillRect(322, 64, 124, 80);
-    x.fillStyle = '#d9d6cc'; x.fillRect(310, 150, 148, 62); x.fillStyle = '#9a978d'; for (let i = 0; i < 12; i++) x.fillRect(316 + i * 12, 154, 3, 50);
+    emRect(322, 64, 124, 80); x.fillStyle = '#d9d6cc'; x.fillRect(310, 150, 148, 62); x.fillStyle = '#9a978d'; for (let i = 0; i < 12; i++) x.fillRect(316 + i * 12, 154, 3, 50);
     x.fillStyle = '#d9d6cc'; x.fillRect(310, 144, 148, 8);
     streaks(x, 512, 256, 5, 22, 'rgba(60,55,45,0.13)'); grain(x, 512, 256, 18, 9); return c; },
   // 3: Stalin-era plaster (warm cream / ochre) with architraves
@@ -87,17 +91,19 @@ const FACADES = {
     x.fillStyle = '#2c3640'; x.fillRect(0, 0, 512, 30); x.fillStyle = 'rgba(255,255,255,0.15)';
     for (let i = 0; i < 4; i++) { x.beginPath(); x.moveTo(i * 128 + 20, 256); x.lineTo(i * 128 + 90, 30); x.lineTo(i * 128 + 110, 30); x.lineTo(i * 128 + 44, 256); x.fill(); }
     x.fillStyle = '#c9ced1'; for (let i = 0; i <= 4; i++) x.fillRect(i * 128 - 2, 0, 4, 256); x.fillRect(0, 28, 512, 4);
+    emRect(0, 34, 512, 220); for (let i = 0; i <= 4; i++) emClear(i * 128 - 2, 0, 4, 256);
     grain(x, 512, 256, 8, 15); return c; },
   // 5: concrete / ribbon windows
   5() { const [c, x] = mk(512, 256); x.fillStyle = '#b9b7b0'; x.fillRect(0, 0, 512, 256);
     x.fillStyle = '#3d4a56'; x.fillRect(0, 62, 512, 112); const g = x.createLinearGradient(0, 62, 512, 174);
     g.addColorStop(0, 'rgba(160,190,210,0.5)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 62, 512, 112);
+    emRect(0, 64, 512, 108); for (let i = 0; i <= 4; i++) emClear(i * 128 - 3, 62, 6, 112);
     x.fillStyle = '#e4e2dc'; for (let i = 0; i <= 4; i++) x.fillRect(i * 128 - 3, 62, 6, 112); x.fillRect(0, 58, 512, 6); x.fillRect(0, 172, 512, 6);
     x.fillStyle = 'rgba(0,0,0,0.12)'; x.fillRect(0, 252, 512, 4); streaks(x, 512, 256, 8, 20, 'rgba(50,50,50,0.12)'); grain(x, 512, 256, 20, 17); return c; },
   // 6: industrial cladding
   6() { const [c, x] = mk(512, 256); x.fillStyle = '#b3b6b2'; x.fillRect(0, 0, 512, 256);
     for (let i = 0; i < 128; i++) { x.fillStyle = i % 2 ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'; x.fillRect(i * 4, 0, 4, 256); }
-    x.fillStyle = '#4d5a63'; for (const cx of [80, 280, 440]) x.fillRect(cx, 170, 70, 36);
+    x.fillStyle = '#4d5a63'; for (const cx of [80, 280, 440]) { x.fillRect(cx, 170, 70, 36); emRect(cx, 170, 70, 36); }
     x.fillStyle = '#d7d9d4'; x.fillRect(0, 0, 512, 10); x.fillStyle = 'rgba(0,0,0,0.2)'; x.fillRect(0, 250, 512, 6);
     streaks(x, 512, 256, 9, 20, 'rgba(60,50,40,0.18)'); grain(x, 512, 256, 18, 19); return c; },
   // 7: low-rise pastel plaster
@@ -106,10 +112,10 @@ const FACADES = {
     x.fillStyle = 'rgba(0,0,0,0.12)'; x.fillRect(0, 250, 512, 6); streaks(x, 512, 256, 10, 14, 'rgba(60,50,30,0.12)'); grain(x, 512, 256, 14, 23); return c; },
   // 8: shop front (ground floor)
   8() { const [c, x] = mk(512, 256); x.fillStyle = '#4a4a4c'; x.fillRect(0, 0, 512, 256);
-    x.fillStyle = '#d8d2c4'; x.fillRect(0, 0, 512, 52); x.fillStyle = '#2a3a48'; x.fillRect(16, 10, 480, 32);
+    x.fillStyle = '#d8d2c4'; x.fillRect(0, 0, 512, 52); x.fillStyle = '#2a3a48'; x.fillRect(16, 10, 480, 32); emRect(16, 10, 480, 32, 1);
     x.fillStyle = '#f0ece0'; x.font = 'bold 22px sans-serif'; x.fillText('МАГАЗИН · КАФЕ', 150, 33);
     for (let i = 0; i < 2; i++) { const px = 12 + i * 250; const g = x.createLinearGradient(px, 70, px + 236, 240); g.addColorStop(0, '#a6c4d6'); g.addColorStop(0.5, '#53697a'); g.addColorStop(1, '#2d3b47');
-      x.fillStyle = g; x.fillRect(px, 70, 236, 170); x.fillStyle = '#26282b'; x.fillRect(px, 70, 236, 6); x.fillRect(px + 116, 70, 6, 170); x.fillRect(px, 234, 236, 8); }
+      x.fillStyle = g; x.fillRect(px, 70, 236, 170); emRect(px + 4, 78, 228, 150, 1); x.fillStyle = '#26282b'; x.fillRect(px, 70, 236, 6); x.fillRect(px + 116, 70, 6, 170); emClear(px + 114, 70, 10, 170); x.fillRect(px, 234, 236, 8); }
     x.fillStyle = 'rgba(255,230,160,0.18)'; x.fillRect(20, 150, 220, 80);
     grain(x, 512, 256, 14, 29); return c; },
   // 9: stone plinth w/ small windows (ground floor)
@@ -124,7 +130,13 @@ export const FACADE_PROPS = [
   { roughness: 0.25, metalness: 0.35 }, { roughness: 0.8, metalness: 0.05 }, { roughness: 0.6, metalness: 0.25 }, { roughness: 0.9, metalness: 0.0 },
   { roughness: 0.55, metalness: 0.1 }, { roughness: 0.85, metalness: 0.0 }];
 
-export function makeFacadeTextures() { return Object.keys(FACADES).map(k => tex(FACADES[k]())); }
+export function makeFacadeTextures() {
+  return Object.keys(FACADES).map(k => {
+    const [mc, mx] = mk(512, 256); mx.fillStyle = '#000'; mx.fillRect(0, 0, 512, 256); EM = mx;
+    const t = tex(FACADES[k]()); EM = null;
+    const m = tex(mc, { srgb: false, aniso: 4 }); t.userData.winMask = m; return t;
+  });
+}
 
 export function makeRoofTextures() {
   // 0: flat bitumen/gravel roof, 1: pitched metal sheet / tiles (tinted by vertex colour)

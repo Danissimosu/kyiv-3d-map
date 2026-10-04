@@ -12,6 +12,9 @@ import { SaveSystem, newestSave, hasSave } from './save.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { World } from './world.js';
+import { FX } from './fx.js';
+import { SkyFX } from './skyfx.js';
+import { Post } from './post.js';
 
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
@@ -59,10 +62,13 @@ async function main() {
   const GOV = !qs.has('shot') && qs.get('gov') !== '0';
   const PRL = MOB ? [1.0, 1.25, 1.5, 2.0] : [1.0, 1.15, 1.3, 1.5], DETAILR = MOB ? [0, 200, 320, 450] : [150, 300, 450, 600], ACTR = [35, 45, 55, 60];
   const MAXPR = parseFloat(qs.get('pr') || '0');
+  const post = new Post(renderer, { mob: MOB }); const POSTQ = qs.has('post') ? parseInt(qs.get('post')) : -1;
+  const postFor = l => POSTQ >= 0 ? POSTQ : (l >= 3 ? 2 : l >= 2 ? 1 : 0);
+  const PRLP = MOB ? [1.0, 1.25, 1.4, 1.6] : [1.0, 1.15, 1.3, 1.5];
   let qLevel = qs.has('q') ? Math.max(0, Math.min(3, parseInt(qs.get('q')))) : 3;
-  const prFor = l => Math.min(window.devicePixelRatio, MAXPR || PRL[l]);
+  const prFor = l => Math.min(window.devicePixelRatio, MAXPR || (postFor(l) ? PRLP[l] : PRL[l]));
   renderer.setPixelRatio(prFor(qLevel));
-  renderer.setSize(innerWidth, innerHeight, false);
+  renderer.setSize(innerWidth, innerHeight, false); post.setMode(postFor(qLevel));
   const manualShadow0 = qs.has('shadow'), shadows = manualShadow0 ? qs.get('shadow') !== '0' : qLevel >= 2;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.68;
@@ -89,16 +95,27 @@ async function main() {
   scene.add(sun, sun.target);
   // day / night follows the global game clock (unless ?sun / ?az pin the sun)
   const dayCol = new THREE.Color(0xc4d7ea), nightCol = new THREE.Color(0x090e1c), dawnCol = new THREE.Color(0xffb060), sunWhite = new THREE.Color(0xffeccc); let skyT = 99;
+  const fx = new FX(scene, null, { mob: MOB }); const skyfx = new SkyFX(scene, { mob: MOB, cover: parseFloat(qs.get('clouds') || '0.42') });
+  const FORCE_NIGHT = qs.has('night') ? parseFloat(qs.get('night')) : null;
+  let skySun = 1, skyCol = new THREE.Color(0xffeccc);
+  function applyNight() {
+    const e = DAYCYCLE ? clock.sunElev() : (FORCE_NIGHT !== null ? -10 : elev), h = DAYCYCLE ? clock.hour : 21;
+    let n = THREE.MathUtils.clamp((8 - e) / 11, 0, 1); n = n * n * (3 - 2 * n); if (FORCE_NIGHT !== null) n = FORCE_NIGHT;
+    const lit = h >= 18 ? THREE.MathUtils.lerp(0.62, 0.3, Math.min(1, (h - 18) / 6)) : h < 5.5 ? 0.18 : 0.4;
+    fx.setNight(n, lit); post.night = n; post.bloom = 0.42 + 0.5 * n; const e2 = DAYCYCLE ? clock.sunElev() : elev; post.glare = 0.55 * THREE.MathUtils.smoothstep(e2, -3, 6) * (e2 < 14 ? 1.25 : 0.8); post.sunDir.copy(su.sunPosition.value);
+  }
   function applySky() {
+    applyNight();
     if (!DAYCYCLE) return;
     const e = clock.sunElev(), az = THREE.MathUtils.degToRad(clock.sunAz()), f = THREE.MathUtils.clamp((e + 2) / 14, 0, 1);
     su.sunPosition.value.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - e), az);
     sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - Math.max(e, 8)), az);   // shadows never flip below the horizon
     sun.intensity = 3.3 * f; sun.color.copy(dawnCol).lerp(sunWhite, THREE.MathUtils.clamp(e / 22, 0, 1)); hemi.intensity = 0.1 + 0.5 * f; scene.environmentIntensity = 0.08 + 0.52 * f;
-    fogCol.copy(nightCol).lerp(dayCol, f); scene.fog.color.copy(fogCol); renderer.toneMappingExposure = 0.45 + 0.23 * f;
+    fogCol.copy(nightCol).lerp(dayCol, f); scene.fog.color.copy(fogCol); skySun = f; skyCol = sun.color; renderer.toneMappingExposure = 0.45 + 0.23 * f;
   }
 
   const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { base: BASE, shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
+  fx.world = world; fx.setLevel(qLevel);
   const city = new City(world, scene, manifest, { mobile: MOB }); city.enabled = qs.get('city') !== '0'; city.setLevel(qLevel);
 
   // ---- player
@@ -163,10 +180,10 @@ async function main() {
   function toggleShadows() { manualShadow = true; setShadows(!sun.castShadow); }
   const gov = { t: 0, n: 0, good: 0, lastChange: performance.now(), start: performance.now(), fps: 60 };
   function setLevel(l) {
-    qLevel = Math.max(0, Math.min(3, l)); renderer.setPixelRatio(prFor(qLevel)); renderer.setSize(innerWidth, innerHeight, false);
+    qLevel = Math.max(0, Math.min(3, l)); post.setMode(postFor(qLevel)); renderer.setPixelRatio(prFor(qLevel)); renderer.setSize(innerWidth, innerHeight, false);
     world.detailR = DETAILR[qLevel]; world.interiors.activateR = ACTR[qLevel]; world.interiors.disposeR = ACTR[qLevel] + 25;
     if (!manualShadow) setShadows(qLevel >= 2);
-    city.setLevel(qLevel); transit.setLevel(qLevel); gov.lastChange = performance.now(); gov.good = 0;
+    city.setLevel(qLevel); transit.setLevel(qLevel); fx.setLevel(qLevel); applyNight(); gov.lastChange = performance.now(); gov.good = 0;
   }
   function governor(raw) {
     if (!GOV || raw > 0.5 || !spawned) return; gov.t += raw; gov.n++;
@@ -361,14 +378,14 @@ async function main() {
     }
     const bob = 0; const targetEye = P.y + EYE; P.eye += (targetEye - P.eye) * Math.min(1, dt * (P.grounded ? 18 : 40)); if (P.fly) P.eye = targetEye;
     camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0);
-    sky.position.copy(camera.position);
+    sky.position.copy(camera.position); fx.update(P, dt); skyfx.update(camera, su.sunPosition.value, skySun, skyCol, fogCol);
     // sun shadow follows the player (snapped to texels)
     { const q = (2 * SC) / SMAP; const sx = Math.round(P.x / q) * q, sz = Math.round(P.z / q) * q, sy = Math.round(P.y / q) * q;
       sun.target.position.set(sx, sy, sz); sun.position.set(sx + sunDir.x * 350, sy + sunDir.y * 350, sz + sunDir.z * 350); sun.target.updateMatrixWorld(); }
     // water animation
     world.waterN.offset.x += dt * 0.012; world.waterN.offset.y += dt * 0.007;
     $('uw').style.display = (P.inWater && P.wl !== null && camera.position.y < P.wl) ? 'block' : 'none';
-    renderer.render(scene, camera); if (frames % 5 === 0) doorHint();
+    post.render(scene, camera, dt); if (frames % 5 === 0) doorHint();
     if (mapOpen && (frames % 10 === 0)) drawBig();
     if (frames % (MOB ? 8 : 4) === 0) drawMini();
   }
@@ -383,7 +400,7 @@ async function main() {
     if (txt !== dhTxt) { dhTxt = txt; dh.textContent = txt; dh.style.display = txt ? 'block' : 'none'; }
   }
   const simulate = (n, dt = 1 / 30) => { for (let i = 0; i < n; i++) { world.update(P, dt, 40); world.interiors.update(P, dt, 1e9); physics(dt); } P.eye = P.y + EYE; camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0); sky.position.copy(camera.position); };
-  const renderNow = () => { camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0); sky.position.copy(camera.position); renderer.render(scene, camera); doorHint(); };
+  const renderNow = () => { camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0); sky.position.copy(camera.position); post.render(scene, camera, 0.016); doorHint(); };
   let hudOpen = qs.get('hud') === '1'; $('hud').classList.toggle('open', hudOpen);
   { const hi = $('hudi'), tg = e => { e.preventDefault(); e.stopPropagation(); hudOpen = !hudOpen; $('hud').classList.toggle('open', hudOpen); updateHud(); }; hi.addEventListener('touchend', tg, { passive: false }); hi.addEventListener('click', tg); hi.addEventListener('touchstart', e => e.stopPropagation(), { passive: true }); }
   function updateHud() {
@@ -395,7 +412,7 @@ async function main() {
       тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}<br>${transit.hudLine()}`;
     $('hudtxt').innerHTML = IS_TOUCH && !hudOpen ? `${fps.toFixed(0)} fps · Q${qLevel}` : full;
   }
-  window.__kyiv = { city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; }, taxi: taxiApp, get saves() { return saves; }, get menu() { return menu; }, openPause, autosave, get paused() { return paused; } };
+  window.__kyiv = { post, fx, skyfx, city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; }, taxi: taxiApp, get saves() { return saves; }, get menu() { return menu; }, openPause, autosave, get paused() { return paused; } };
   requestAnimationFrame(frame);
 }
 main().catch(e => { console.error(e); const m = document.getElementById('msg'); if (m) m.textContent = 'Ошибка: ' + e.message; });

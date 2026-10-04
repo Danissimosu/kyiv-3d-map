@@ -508,7 +508,7 @@ export class City {
       let pitch = 0; if (!c.path.y && c.pitchOn !== false) { const h2 = this.world.heightAt(c.x + Math.sin(c.yaw) * 1.8, c.z + Math.cos(c.yaw) * 1.8), h1 = this.world.heightAt(c.x - Math.sin(c.yaw) * 1.8, c.z - Math.cos(c.yaw) * 1.8); pitch = Math.atan2(h1 - h2, 3.6); }
       q.setFromAxisAngle(up, c.yaw); qa.setFromAxisAngle(xa, pitch * 0.8 + (c.tilt || 0)); q.multiply(qa);   // geometry front is +z
       pv.set(c.x, c.y, c.z); sv.set(1, 1, 1); M.compose(pv, q, sv);
-      if (fl.add(c.model | 0, c.factory, c.dmg ? col.copy(c.col).multiplyScalar(0.7) : c.col, M)) n++;
+      if (fl.add(c.model | 0, c.factory, c.dmg ? col.copy(c.col).multiplyScalar(0.7) : c.col, M, !c.parked)) n++;
     }
     fl.end(); this.stats.cars = n;
     // distant traffic as light points
