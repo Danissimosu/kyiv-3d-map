@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { InteriorManager, planBuilding, sArea, offsetRing, DOOR_W, DOOR_H } from './interior.js';
-import { patchFacadeNight, patchRoadWet } from './fx.js';
+import { patchFacadeNight, patchRoadWet, TIME } from './fx.js';
 import { propTemplates, stamp } from './props.js';
 import { pbrMaps, makeDoorTexture, DOOR_RECT, makeFacadeTextures, FACADE_PROPS, makeRoofTextures, makeGroundTextures, roadTexture, waterNormal } from './textures.js';
 
@@ -71,6 +71,9 @@ export class World {
     this.waterMat = new THREE.MeshStandardMaterial({ color: 0x1f4f62, roughness: 0.06, metalness: 0.15, normalMap: this.waterN, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.9, envMapIntensity: 1.3 });
     this.treeGeo = this._treeGeos();
     this.treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+    this.treeMat.onBeforeCompile = (sh) => { sh.uniforms.uTime = TIME; sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;').replace('#include <begin_vertex>', `#include <begin_vertex>
+  { float hh = max(0.0, transformed.y - 2.2) / 6.0; vec2 ph = instanceMatrix[3].xz * 0.07; hh *= hh; transformed.x += sin(uTime * 1.3 + ph.x + ph.y) * 0.09 * hh; transformed.z += cos(uTime * 1.05 + ph.y * 1.3) * 0.07 * hh; }`); };
+    this.treeMat.customProgramCacheKey = () => 'kyivTrees';
     this.lampGeo = (() => { const a = new THREE.CylinderGeometry(0.06, 0.08, 6, 6); a.translate(0, 3, 0); const b = new THREE.BoxGeometry(1.0, 0.12, 0.3); b.translate(0.5, 6.0, 0); return mergeGeometries([a, b]); })();
     this.lampMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.6, metalness: 0.5 });
     this.stats = { buildings: 0, tris: 0 };
@@ -791,23 +794,49 @@ diffuseColor.rgb *= col * 1.25;`);
     const trunk2 = col(strip(new THREE.CylinderGeometry(0.14, 0.22, 2.0, 6, 1, true)), 0x4d3a2c); trunk2.translate(0, 1.0, 0);
     const cone = col(strip(new THREE.ConeGeometry(2.0, 8.5, 8, 1, true)), 0x2f5a37, 0.18); cone.translate(0, 2 + 4.25, 0);
     const conif = mergeGeometries([trunk2, cone]);
-    return [decid, conif];
+    const blob = (r, x, y, z, c, sy = 1, sx = 1, jit = 0.2) => { const g = strip(new THREE.IcosahedronGeometry(r, 0)); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const k = 1 + (hash(p.getX(i) * 9.1 + p.getY(i) * 5.3 + p.getZ(i) * 2.7 + x) - 0.5) * 0.3; p.setXYZ(i, p.getX(i) * k * sx, p.getY(i) * k * sy, p.getZ(i) * k * sx); } g.computeVertexNormals(); col(g, c, jit); g.translate(x, y, z); return g; };
+    const trunkB = col(strip(new THREE.CylinderGeometry(0.1, 0.16, 5.2, 5, 1, true)), 0xd9d5c9); trunkB.translate(0, 2.6, 0);
+    const birch = mergeGeometries([trunkB, blob(1.5, 0, 6.2, 0, 0x7fa83c), blob(1.25, 0.9, 5.2, 0.3, 0x86b040), blob(1.2, -0.8, 5.0, -0.4, 0x74a038), blob(1.0, 0.1, 7.3, -0.2, 0x8bb544)]);
+    const trunkP = col(strip(new THREE.CylinderGeometry(0.12, 0.2, 2.6, 5, 1, true)), 0x4e3d2e); trunkP.translate(0, 1.3, 0);
+    const poplar = mergeGeometries([trunkP, blob(1.5, 0, 6.2, 0, 0x3f6e2c, 3.2, 0.85, 0.15)]);
+    const trunkL = col(strip(new THREE.CylinderGeometry(0.2, 0.3, 3.0, 6, 1, true)), 0x54402f); trunkL.translate(0, 1.5, 0);
+    const linden = mergeGeometries([trunkL, blob(2.2, 0, 5.4, 0, 0x4f7e30, 0.9), blob(1.8, 1.6, 4.6, 0.6, 0x568634, 0.9), blob(1.8, -1.5, 4.7, -0.7, 0x4a7a2e, 0.9), blob(1.6, 0.3, 6.7, 0.2, 0x5b8c37, 0.9)]);
+    const trunkS = col(strip(new THREE.CylinderGeometry(0.12, 0.2, 1.4, 5, 1, true)), 0x45342a); trunkS.translate(0, 0.7, 0);
+    const cone2 = (r, h, y, c) => { const g = col(strip(new THREE.ConeGeometry(r, h, 7, 1, true)), c, 0.15); g.translate(0, y, 0); return g; };
+    const spruce = mergeGeometries([trunkS, cone2(2.3, 3.2, 2.6, 0x23482e), cone2(1.8, 3.0, 4.4, 0x28522f), cone2(1.2, 2.8, 6.2, 0x2d5934)]);
+    const bush = mergeGeometries([blob(0.8, 0, 0.55, 0, 0x4f7a30, 0.75, 1, 0.25), blob(0.6, 0.6, 0.4, 0.2, 0x5a8636, 0.8, 1, 0.25)]);
+    return [decid, conif, birch, poplar, linden, spruce, bush];
   }
   _buildTrees(t, arr, group) {
-    const per = [[], []]; for (let i = 0; i < arr.length; i += 4) { if (this.treeKeep < 1 && hash(arr[i] * 0.731 + arr[i + 1] * 1.913) > this.treeKeep) continue; per[arr[i + 3] ? 1 : 0].push(i); }
+    const per = [[], [], [], [], [], [], []]; const bushes = [];
+    for (let i = 0; i < arr.length; i += 4) {
+      const x = arr[i], z = arr[i + 1]; if (this.treeKeep < 1 && hash(x * 0.731 + z * 1.913) > this.treeKeep) continue;
+      const h = hash(x * 2.17 + z * 0.93 + 5.1); let ty;
+      if (arr[i + 3]) ty = h < 0.6 ? 1 : 5; else ty = h < 0.4 ? 0 : h < 0.58 ? 2 : h < 0.68 ? 3 : 4;
+      per[ty].push(i); if (!arr[i + 3] && h > 0.55 && this.treeKeep >= 0.5) bushes.push(x + (hash(x + 3.3) - 0.5) * 6, z + (hash(z + 8.8) - 0.5) * 6, 0.8 + hash(x * z) * 0.7);
+    }
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), yaxis = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
-    for (let ty = 0; ty < 2; ty++) {
-      const ids = per[ty]; if (!ids.length) continue;
+    for (let ty = 0; ty < per.length; ty++) {
+      const ids = per[ty]; if (!ids.length) continue; const conifer = ty === 1 || ty === 5;
       const im = new THREE.InstancedMesh(this.treeGeo[ty], this.treeMat, ids.length);
       ids.forEach((i, k) => {
         const x = arr[i], z = arr[i + 1], sc = arr[i + 2]; this.addPole(t.ix + '_' + t.iz, x, z, 0.28 + 0.12 * Math.min(2, sc));
         q.setFromAxisAngle(yaxis, hash(x * 3.1 + z) * 6.28); s.set(sc, sc * (0.9 + 0.3 * hash(z + x * 0.3)), sc); p.set(x, this.heightAt(x, z) - 0.1, z); m.compose(p, q, s); im.setMatrixAt(k, m);
-        const j = hash(x * 1.7 + z * 9.1); c.setRGB(0.85 + 0.3 * j, 0.85 + 0.25 * hash(j * 17), 0.8 + 0.3 * hash(j * 31)); im.setColorAt(k, c);
+        const j = hash(x * 1.7 + z * 9.1); c.setRGB(0.85 + 0.3 * j, 0.85 + 0.25 * hash(j * 17), 0.8 + 0.3 * hash(j * 31));
+        if (!conifer && ty !== 3) { const a = hash(x * 0.57 + z * 1.31 + 11.0); if (a < 0.16) c.multiply(AUT_Y); else if (a < 0.26) c.multiply(AUT_O); else if (a < 0.3) c.multiply(AUT_R); }   // autumn colours
+        im.setColorAt(k, c);
       });
-      im.castShadow = this.shadows; im.receiveShadow = false; im.frustumCulled = true; im.computeBoundingSphere(); group.add(im);
+      im.castShadow = this.shadows && ty !== 6; im.receiveShadow = false; im.frustumCulled = true; im.computeBoundingSphere(); group.add(im);
+    }
+    if (bushes.length) {
+      const n = bushes.length / 3, im = new THREE.InstancedMesh(this.treeGeo[6], this.treeMat, n);
+      for (let k = 0; k < n; k++) { const x = bushes[3 * k], z = bushes[3 * k + 1], sc = bushes[3 * k + 2]; q.setFromAxisAngle(yaxis, hash(x + z) * 6.28); s.set(sc, sc, sc); p.set(x, this.heightAt(x, z) - 0.05, z); m.compose(p, q, s); im.setMatrixAt(k, m);
+        const a = hash(x * 0.9 + z * 1.7); c.setRGB(0.9 + 0.2 * a, 0.9 + 0.2 * hash(a * 7), 0.85 + 0.2 * hash(a * 13)); if (a < 0.2) c.multiply(AUT_Y); im.setColorAt(k, c); }
+      im.castShadow = false; im.receiveShadow = false; im.frustumCulled = true; im.computeBoundingSphere(); group.add(im);
     }
   }
 }
+const AUT_Y = new THREE.Color(2.3, 1.15, 0.3), AUT_O = new THREE.Color(2.7, 0.8, 0.3), AUT_R = new THREE.Color(2.2, 0.55, 0.35);
 function hypot2(a, b) { return Math.hypot(a[0] - b[0], a[2] - b[2]); }
 function ex_(a, b) { return b[0] - a[0]; }
 function ez_(a, b) { return b[2] - a[2]; }

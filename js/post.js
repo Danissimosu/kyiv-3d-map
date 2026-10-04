@@ -17,17 +17,18 @@ void main() {
   vec3 dx = abs(px.z - p.z) < abs(nx.z - p.z) ? px - p : p - nx, dy = abs(py.z - p.z) < abs(ny.z - p.z) ? py - p : p - ny;
   vec3 n = normalize(cross(dx, dy)); if (n.z < 0.0) n = -n;
   vec3 t = normalize(cross(n, abs(n.y) < 0.95 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))), b = cross(n, t);
+  float facing = abs(dot(n, normalize(-p)));
   float ang = ign(gl_FragCoord.xy) * 6.2831853, rad = uRadius * (0.7 + 0.5 * dist * 0.004);
   float occ = 0.0;
   for (int i = 0; i < ${N}; i++) {
-    float fi = (float(i) + 0.5) / float(${N}); float a = ang + fi * 6.2831853 * 2.39996; float z = sqrt(fi), rr = sqrt(1.0 - fi);
+    float fi = (float(i) + 0.5) / float(${N}); float a = ang + fi * 6.2831853 * 2.39996; float z = 0.3 + 0.7 * sqrt(fi), rr = sqrt(1.0 - z * z);
     vec3 dir = t * cos(a) * rr + b * sin(a) * rr + n * z; float sc = mix(0.12, 1.0, fi * fi);
     vec3 sp = p + dir * rad * sc; vec4 pp = uProj * vec4(sp, 1.0); vec2 uv2 = pp.xy / pp.w * 0.5 + 0.5;
     if (uv2.x < 0.0 || uv2.x > 1.0 || uv2.y < 0.0 || uv2.y > 1.0) continue;
     float sz = vp(uv2).z; float diff = sz - sp.z; float rc = smoothstep(0.0, 1.0, rad / max(0.001, abs(p.z - sz)));
-    occ += (diff > 0.04 * (1.0 + dist * 0.02) ? 1.0 : 0.0) * rc;
+    occ += (diff > 0.06 + 0.1 * sc * rad + dist * 0.004 + rad * 0.12 / max(facing, 0.12) ? 1.0 : 0.0) * rc;
   }
-  float ao = 1.0 - occ / float(${N}) * 1.35; ao = mix(ao, 1.0, smoothstep(uFade * 0.55, uFade, dist));
+  float ao = 1.0 - occ / float(${N}) * 1.35; ao = mix(1.0, ao, smoothstep(0.08, 0.3, facing)); ao = mix(ao, 1.0, smoothstep(uFade * 0.55, uFade, dist));
   gl_FragColor = vec4(vec3(clamp(ao, 0.0, 1.0)), 1.0);
 }`;
 const AOB_FS = `
@@ -51,7 +52,7 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }`;
 const COMP_FS = `
-varying vec2 vUv; uniform sampler2D tScene, tAO, tBA, tBB, tDepth; uniform float uAO, uBloom, uNight, uGlare, uVig, uTime; uniform vec2 uSunUv, uAspect;
+varying vec2 vUv; uniform sampler2D tScene, tAO, tBA, tBB, tDepth; uniform float uAO, uBloom, uNight, uGlare, uVig, uTime, uDbg; uniform vec2 uSunUv, uAspect;
 ${IGN}
 void main() {
   vec3 c = texture2D(tScene, vUv).rgb;
@@ -63,6 +64,7 @@ void main() {
     float g = 0.9 / (1.0 + r * r * 70.0) + 0.35 / (1.0 + r * r * 9.0) + 0.05 * exp(-r * 2.0);
     c += vec3(1.0, 0.82, 0.55) * g * vis * uGlare;
   }
+  if (uDbg > 0.5) { gl_FragColor = vec4(vec3(texture2D(tAO, vUv).r), 1.0); return; }
   gl_FragColor = vec4(c, 1.0);
   #include <tonemapping_fragment>
   vec3 o = gl_FragColor.rgb; float l = dot(o, vec3(0.2126, 0.7152, 0.0722));
@@ -89,7 +91,7 @@ export class Post {
     this.mAOB = mat(AOB_FS, { tAO: { value: T }, tDepth: { value: T }, uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 3000 } });
     this.mBright = mat(BRIGHT_FS, { tScene: { value: T }, uTexel: { value: new THREE.Vector2() }, uThr: { value: 0.85 } });
     this.mBlur = mat(BLUR_FS, { tSrc: { value: T }, uDir: { value: new THREE.Vector2() } });
-    this.mComp = mat(COMP_FS, { tScene: { value: T }, tAO: { value: T }, tBA: { value: T }, tBB: { value: T }, tDepth: { value: T }, uAO: { value: 0 }, uBloom: { value: 0.5 }, uNight: { value: 0 }, uGlare: { value: 0 }, uVig: { value: 0.28 }, uTime: { value: 0 },
+    this.mComp = mat(COMP_FS, { tScene: { value: T }, tAO: { value: T }, tBA: { value: T }, tBB: { value: T }, tDepth: { value: T }, uAO: { value: 0 }, uBloom: { value: 0.5 }, uNight: { value: 0 }, uGlare: { value: 0 }, uDbg: { value: 0 }, uVig: { value: 0.28 }, uTime: { value: 0 },
       uSunUv: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: new THREE.Vector2(1, 1) } });
     this.bloom = 0.5; this.thr = 1.4; this.night = 0; this.glare = 0; this.sunDir = new THREE.Vector3(0, 1, 0); this._v = new THREE.Vector4();
   }
@@ -126,7 +128,7 @@ export class Post {
     // sun glare position
     let glare = 0; const sunUv = this.mComp.uniforms.uSunUv.value;
     if (this.glare > 0.001) { const v = this._v.set(this.sunDir.x, this.sunDir.y, this.sunDir.z, 0).applyMatrix4(camera.matrixWorldInverse); if (v.z < -0.05) { const c = this._v.set(this.sunDir.x, this.sunDir.y, this.sunDir.z, 0).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix); const w = -v.z; sunUv.set(c.x / w * 0.5 + 0.5, c.y / w * 0.5 + 0.5); glare = this.glare * Math.min(1, -v.z * 2.0); } }
-    this._pass(this.mComp, null, { tScene: this.rt.texture, tAO: full ? this.ao2.texture : null, tBA: this.ba.texture, tBB: this.bb.texture, tDepth: depth, uAO: full ? 0.85 : 0, uBloom: this.bloom, uNight: this.night, uGlare: glare, uTime: (performance.now() % 1000) / 1000 * 7,
+    this._pass(this.mComp, null, { tScene: this.rt.texture, tAO: full ? this.ao2.texture : null, tBA: this.ba.texture, tBB: this.bb.texture, tDepth: depth, uAO: full ? 0.85 : 0, uBloom: this.bloom, uNight: this.night, uDbg: this.dbg || 0, uGlare: glare, uTime: (performance.now() % 1000) / 1000 * 7,
       uAspect: this.mComp.uniforms.uAspect.value.set(W / H, 1) });
     info.autoReset = true;
   }
