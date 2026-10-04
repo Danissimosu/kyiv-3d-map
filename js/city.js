@@ -28,6 +28,13 @@ function humanoidGeometry() {
   add(0.11, 0.55, 0.12, 0.27, 1.2, 0, 3, 1.46, w);
   add(0.16, 0.86, 0.17, -0.1, 0.43, 0, 4, 0.88, [0.9, 0.9, 0.9]); // legs (trouser tint), pivot at the hip
   add(0.16, 0.86, 0.17, 0.1, 0.43, 0, 5, 0.88, [0.9, 0.9, 0.9]);
+  const hair = [0.16 + Math.random() * 0 , 0.11, 0.08];
+  add(0.24, 0.1, 0.24, 0, 1.78, -0.01, 0, 0, hair); add(0.24, 0.2, 0.06, 0, 1.69, -0.09, 0, 0, hair);   // hair cap + back
+  add(0.08, 0.06, 0.08, 0, 1.49, 0, 0, 0, skin);                                                         // neck
+  add(0.44, 0.06, 0.26, 0, 0.93, 0, 1, 0, [0.15, 0.13, 0.12]);                                         // belt / hips (trouser tint, dark)
+  add(0.12, 0.1, 0.13, -0.27, 0.88, 0.0, 6, 1.46, skin); add(0.12, 0.1, 0.13, 0.27, 0.88, 0.0, 7, 1.46, skin);   // hands
+  add(0.17, 0.09, 0.27, -0.1, 0.045, 0.05, 8, 0.88, [0.12, 0.11, 0.11]); add(0.17, 0.09, 0.27, 0.1, 0.045, 0.05, 9, 0.88, [0.12, 0.11, 0.11]);   // shoes
+  add(0.3, 0.34, 0.12, 0, 1.2, -0.18, 1, 0, [0.55, 0.55, 0.55]);                                        // backpack (shirt-tinted, darker)
   const m = parts[0]; const merged = new THREE.BufferGeometry();
   for (const k of ['position', 'normal', 'aPart', 'color']) { const arrs = parts.map(g => g.attributes[k]); const sz = arrs[0].itemSize; const tot = arrs.reduce((s, a) => s + a.count, 0); const out = new Float32Array(tot * sz); let o = 0; for (const a of arrs) { out.set(a.array, o); o += a.array.length; } merged.setAttribute(k, new THREE.BufferAttribute(out, sz)); }
   let off = 0; const idx = []; for (const g of parts) { for (const i of g.index.array) idx.push(i + off); off += g.attributes.position.count; } merged.setIndex(idx);
@@ -83,11 +90,11 @@ export class City {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 aPart; attribute vec4 aAnim; attribute vec3 aShirt; attribute vec3 aPants; uniform float uTime;')
         .replace('#include <color_vertex>', `#include <color_vertex>
           float pid = aPart.x;
-          if (pid > 0.5 && pid < 3.5) vColor.rgb *= aShirt; else if (pid > 3.5) vColor.rgb *= aPants;`)
+          if (pid > 0.5 && pid < 3.5) vColor.rgb *= aShirt; else if (pid > 3.5 && pid < 5.5) vColor.rgb *= aPants;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           if (aAnim.y > 0.0 && pid > 1.5) {
-            float sgn = (pid == 2.0 || pid == 5.0) ? 1.0 : -1.0;
-            float a = sin(uTime * aAnim.y + aAnim.x) * (pid > 3.5 ? 0.62 : 0.5) * sgn * aAnim.z;
+            float sgn = (pid == 2.0 || pid == 5.0 || pid == 6.0 || pid == 8.0) ? 1.0 : -1.0;
+            float a = sin(uTime * aAnim.y + aAnim.x) * ((pid > 3.5 && pid < 5.5 || pid > 7.5) ? 0.62 : 0.5) * sgn * aAnim.z;
             float c = cos(a), s = sin(a), py = aPart.y;
             float yy = transformed.y - py, zz = transformed.z;
             transformed.y = py + yy * c - zz * s; transformed.z = yy * s + zz * c;

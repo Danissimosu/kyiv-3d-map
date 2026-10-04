@@ -120,6 +120,16 @@ function buildCar(i) {
     for (const s of [-1, 1]) { bx(0.52, 0.1, 0.06, s * 0.7, 0.77, fz, HEAD); bx(0.6, 0.1, 0.06, s * 0.58, 0.78, -fz, TAIL); }
     bx(W - 0.1, 0.12, 0.1, 0, 0.4, hl - 0.03, BLACK); bx(W - 0.1, 0.12, 0.1, 0, 0.4, -hl + 0.03, BLACK);
   }
+  // common detail: door shut-lines + handles, mirrors, number plates, exhaust, rocker panels
+  { const sd = W / 2 + 0.006, DK = [0.03, 0.03, 0.035];
+    for (const sx of [-1, 1]) {
+      for (const zz of [hl * 0.34, -hl * 0.1, -hl * 0.4]) bx(0.012, 0.42, 0.014, sx * sd, 0.62, zz, DK);
+      for (const zz of [hl * 0.22, -hl * 0.22]) bx(0.02, 0.025, 0.14, sx * (sd + 0.006), 0.74, zz, CHROME);
+      bx(0.1, 0.07, 0.05, sx * (wb / 2 + 0.1), 0.93, zc + 0.5, DK); bx(0.03, 0.03, 0.05, sx * (wb / 2 + 0.03), 0.91, zc + 0.5, DK);
+      bx(0.03, 0.09, L * 0.55, sx * (W / 2 - 0.02), 0.27, 0, DK); }
+    bx(0.52, 0.11, 0.02, 0, 0.36, hl + 0.015, [0.93, 0.93, 0.9]); bx(0.54, 0.13, 0.015, 0, 0.36, hl + 0.008, DK);
+    bx(0.52, 0.11, 0.02, 0, 0.62, -hl - 0.015, [0.93, 0.93, 0.9]); bx(0.54, 0.13, 0.015, 0, 0.62, -hl - 0.008, DK);
+    bx(0.07, 0.07, 0.2, W * 0.32, 0.26, -hl - 0.05, [0.3, 0.3, 0.32]); }
   return B.build();
 }
 
