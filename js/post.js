@@ -91,7 +91,7 @@ export class Post {
     this.mBlur = mat(BLUR_FS, { tSrc: { value: T }, uDir: { value: new THREE.Vector2() } });
     this.mComp = mat(COMP_FS, { tScene: { value: T }, tAO: { value: T }, tBA: { value: T }, tBB: { value: T }, tDepth: { value: T }, uAO: { value: 0 }, uBloom: { value: 0.5 }, uNight: { value: 0 }, uGlare: { value: 0 }, uVig: { value: 0.28 }, uTime: { value: 0 },
       uSunUv: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: new THREE.Vector2(1, 1) } });
-    this.bloom = 0.5; this.night = 0; this.glare = 0; this.sunDir = new THREE.Vector3(0, 1, 0); this._v = new THREE.Vector4();
+    this.bloom = 0.5; this.thr = 1.4; this.night = 0; this.glare = 0; this.sunDir = new THREE.Vector3(0, 1, 0); this._v = new THREE.Vector4();
   }
   _rt(w, h, o = {}) { return new THREE.WebGLRenderTarget(Math.max(2, w | 0), Math.max(2, h | 0), { type: this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false, colorSpace: THREE.LinearSRGBColorSpace, ...o }); }
   _alloc() {
@@ -119,7 +119,7 @@ export class Post {
       this._pass(this.mAOB, this.ao2, { tAO: this.ao.texture, tDepth: depth, uTexel: this.mAOB.uniforms.uTexel.value.set(1 / (W / 2), 1 / (H / 2)), uNear: camera.near, uFar: camera.far });
     }
     // bloom: 1/4 and 1/8 res, separable gaussian
-    this._pass(this.mBright, this.ba, { tScene: this.rt.texture, uTexel: this.mBright.uniforms.uTexel.value.set(1 / W, 1 / H), uThr: 0.8 });
+    this._pass(this.mBright, this.ba, { tScene: this.rt.texture, uTexel: this.mBright.uniforms.uTexel.value.set(1 / W, 1 / H), uThr: this.thr });
     const bl = (src, tmp, w, h) => { this._pass(this.mBlur, tmp, { tSrc: src.texture, uDir: this.mBlur.uniforms.uDir.value.set(1 / w, 0) }); this._pass(this.mBlur, src, { tSrc: tmp.texture, uDir: this.mBlur.uniforms.uDir.value.set(0, 1 / h) }); };
     bl(this.ba, this.ba2, W / 4, H / 4);
     this._pass(this.mBlur, this.bb, { tSrc: this.ba.texture, uDir: this.mBlur.uniforms.uDir.value.set(0, 0) }); bl(this.bb, this.bb2, W / 8, H / 8);

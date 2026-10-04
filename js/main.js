@@ -95,7 +95,7 @@ async function main() {
   scene.add(sun, sun.target);
   // day / night follows the global game clock (unless ?sun / ?az pin the sun)
   const dayCol = new THREE.Color(0xc4d7ea), nightCol = new THREE.Color(0x090e1c), dawnCol = new THREE.Color(0xffb060), sunWhite = new THREE.Color(0xffeccc); let skyT = 99;
-  const fx = new FX(scene, null, { mob: MOB }); const skyfx = new SkyFX(scene, { mob: MOB, cover: parseFloat(qs.get('clouds') || '0.42') });
+  const fx = new FX(scene, null, { mob: MOB }); const skyfx = new SkyFX(scene, { mob: MOB, cover: parseFloat(qs.get('clouds') || '0.3') });
   const FORCE_NIGHT = qs.has('night') ? parseFloat(qs.get('night')) : null;
   let skySun = 1, skyCol = new THREE.Color(0xffeccc);
   function applyNight() {
@@ -103,7 +103,7 @@ async function main() {
     let n = THREE.MathUtils.clamp((8 - e) / 11, 0, 1); n = n * n * (3 - 2 * n); if (FORCE_NIGHT !== null) n = FORCE_NIGHT;
     const lit = h >= 18 ? THREE.MathUtils.lerp(0.62, 0.3, Math.min(1, (h - 18) / 6)) : h < 5.5 ? 0.18 : 0.4;
     { const dd = clock.day || 0, hs = Math.sin(dd * 91.7 + 13.1) * 43758.5; WET.value = qs.has('wet') ? parseFloat(qs.get('wet')) : (hs - Math.floor(hs) < 0.28 ? 0.75 : 0); }
-    fx.setNight(n, lit); post.night = n; post.bloom = 0.42 + 0.5 * n; const e2 = DAYCYCLE ? clock.sunElev() : elev; post.glare = 0.55 * THREE.MathUtils.smoothstep(e2, -3, 6) * (e2 < 14 ? 1.25 : 0.8); post.sunDir.copy(su.sunPosition.value);
+    fx.setNight(n, lit); post.night = n; post.bloom = 0.3 + 0.6 * n; post.thr = 1.5 - 0.75 * n; const e2 = DAYCYCLE ? clock.sunElev() : elev; post.glare = 0.55 * THREE.MathUtils.smoothstep(e2, -3, 6) * (e2 < 14 ? 1.25 : 0.8); post.sunDir.copy(su.sunPosition.value);
   }
   function applySky() {
     applyNight();
@@ -115,7 +115,7 @@ async function main() {
     fogCol.copy(nightCol).lerp(dayCol, f); scene.fog.color.copy(fogCol); skySun = f; skyCol = sun.color; renderer.toneMappingExposure = 0.45 + 0.23 * f;
   }
 
-  const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { base: BASE, shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
+  const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { base: BASE, shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), propDensity: MOB ? 0.5 : 1, lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
   fx.world = world; fx.setLevel(qLevel);
   const city = new City(world, scene, manifest, { mobile: MOB }); city.enabled = qs.get('city') !== '0'; city.setLevel(qLevel);
 

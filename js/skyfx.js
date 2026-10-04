@@ -23,7 +23,7 @@ void main() {
   // clouds
   vec2 uv = d.xz / (up + 0.14) * 1.9 + vec2(uTime * 0.0035, uTime * 0.0012);
   float c = fbm(uv * 1.25), dens = smoothstep(0.60 - uCover * 0.6, 0.60 - uCover * 0.6 + 0.2, c);
-  float hz = smoothstep(0.0, 0.22, up); float ca = dens * hz;
+  float hz = smoothstep(0.0, 0.22, up); float ca = dens * hz * 0.9;
   float c2 = fbm((uv + uSun.xz * 0.07) * 1.25); float shade = clamp((c - c2) * 3.2 + 0.55, 0.0, 1.0);
   vec3 cc = mix(uShade, uLit, shade); cc += uLit * pow(max(dot(d, uSun), 0.0), 7.0) * 0.28 * (1.0 - uNight);
   cc = mix(cc, uFog, (1.0 - smoothstep(0.0, 0.25, up)) * 0.6);

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { InteriorManager, planBuilding, sArea, offsetRing, DOOR_W, DOOR_H } from './interior.js';
 import { patchFacadeNight, patchRoadWet } from './fx.js';
+import { propTemplates, stamp } from './props.js';
 import { pbrMaps, makeDoorTexture, DOOR_RECT, makeFacadeTextures, FACADE_PROPS, makeRoofTextures, makeGroundTextures, roadTexture, waterNormal } from './textures.js';
 
 const FLOOR_H = 3.1, GF_H = 4.2, CELL = 32;
@@ -51,7 +52,7 @@ export class World {
   constructor(scene, manifest, opts = {}) {
     this.scene = scene; this.man = manifest; this.tiles = new Map(); this.TILE = manifest.tile; this.NG = manifest.ng; this.GRID = manifest.grid;
     this.cells = new Map(); this.poles = new Map(); this.loading = new Set(); this.ready = []; this.loadR = opts.loadR || 1500; this.unloadR = opts.unloadR || 2300;
-    this.detailR = opts.detailR || 600; this.shadows = opts.shadows !== false; this.treeKeep = opts.treeKeep ?? 1; this.curbs = opts.curbs !== false; this.lampKeep = opts.lampKeep ?? 1;
+    this.detailR = opts.detailR || 600; this.shadows = opts.shadows !== false; this.treeKeep = opts.treeKeep ?? 1; this.curbs = opts.curbs !== false; this.props = opts.props !== false; this.propDensity = opts.propDensity ?? 1; this.lampKeep = opts.lampKeep ?? 1;
     this.facadeTex = makeFacadeTextures();
     const PBR = opts.pbr !== false, ns = opts.normalScale ?? 1.0;
     this.facadeMat = this.facadeTex.map((t, i) => { const m = new THREE.MeshStandardMaterial({ map: t, vertexColors: true, ...FACADE_PROPS[i] });
@@ -578,7 +579,7 @@ diffuseColor.rgb *= col * 1.25;`);
     const mbs = {};   // matkey -> {mb, order}
     const get = (kind, order, deck) => { const k = kind + (deck ? 'D' : ''); return mbs[k] || (mbs[k] = { mb: new MB(), kind, order, deck }); };
     const concrete = new MB();
-    const piers = new MB(); const curbs = new MB(), manh = [], zebra = new MB(), ends = new Map();
+    const piers = new MB(); const curbs = new MB(), manh = [], zebra = new MB(), ends = new Map(), furn = new MB(), TP = this.props ? propTemplates() : null;
     for (const r of list) {
       const cls = r.c, pts = r.p, np = pts.length / 2;
       let kind, order, hw = r.w / 2;
@@ -597,8 +598,10 @@ diffuseColor.rgb *= col * 1.25;`);
       if (!r.b && typeof cls === 'number' && cls >= 2 && cls <= 6) {
         this._ribbon(get('side', 1, false).mb, P, hw + 1.6, 0, 4, -0.03);
         if (this.curbs && cls >= 3) this._curb(curbs, P, hw);
+        if (TP && cls >= 3 && cls <= 5 && hw > 2.2) this._furnish(furn, TP, P, hw, r.p[0] * 5.3 + r.p[1], false);
         if (cls >= 3 && cls <= 5 && hw > 2.2) { let acc = hash(r.p[0] * 3.1 + r.p[1]) * 40; for (let i = 0; i < P.length - 1; i++) { const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], l = Math.hypot(dx, dz) || 1; acc += l; if (acc > 46) { acc = 0; const k = hash(P[i][0] * 1.7 + P[i][1] * 2.3), off = (k - 0.5) * hw * 0.9; manh.push(P[i][0] - dz / l * off, P[i][2] + 0.02, P[i][1] + dx / l * off, k * 6.28); } } }
       }
+      if (TP && cls === 0 && !r.b) this._furnish(furn, TP, P, hw, r.p[0] * 5.3 + r.p[1], true);
       const deck = !!r.b;
       const M = get(kind, order, deck).mb;
       const e = this._ribbon(M, P, hw, 0, kind === 'rail' ? 4.8 : 9, 0);
@@ -664,8 +667,9 @@ diffuseColor.rgb *= col * 1.25;`);
       }
     }
     for (const k in mbs) { const o = mbs[k]; if (o.mb.empty) continue; const m = add(o.mb.build(), this._roadMat(o.kind, o.deck), { cast: false, order: o.deck ? 0 : o.order }); if (o.deck) { m.castShadow = this.shadows; } }
-    for (const arr of ends.values()) if (arr.length >= 3) for (const o of arr) this._zebra(zebra, o.P, o.e, o.hw);
+    for (const arr of ends.values()) if (arr.length >= 3) for (const o of arr) { const z = this._zebra(zebra, o.P, o.e, o.hw); if (z && TP) { const sg = (hash(z.cx * 0.37 + z.cz) < 0.5 ? 1 : -1), off = o.hw + 0.9; stamp(furn, TP.crossSign, z.cx + z.nx * off * sg, z.y - 0.03, z.cz + z.nz * off * sg, Math.atan2(z.dx, z.dz), 1); if (o.hw > 4.2 && arr.length >= 4) stamp(furn, TP.tlight, z.cx - z.nx * off * sg + z.dx * 2.8, z.y - 0.03, z.cz - z.nz * off * sg + z.dz * 2.8, Math.atan2(z.dx, z.dz), 1); } }
     if (!zebra.empty) { add(zebra.build(), this._zebraMat || (this._zebraMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 })), { cast: false }); this.stats.tris += zebra.i.length / 3; }
+    if (!furn.empty) { add(furn.build(), this._furnMat || (this._furnMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.25 })), { cast: false }); this.stats.tris += furn.i.length / 3; }
     if (!curbs.empty) { add(curbs.build(), this.concreteMat, { cast: false }); this.stats.tris += curbs.i.length / 3; }
     if (manh.length) this._manholes(manh, add);
     if (!concrete.empty) add(concrete.build(), this.concreteMat, { cast: this.shadows });
@@ -716,8 +720,23 @@ diffuseColor.rgb *= col * 1.25;`);
     const rect = (x0, z0, x1, z1, x2, z2, x3, z3) => { const v = (x, z) => B.v(x, y, z, 0, 1, 0, 0, 0, col, col, col); const i0 = v(x0, z0), i1 = v(x1, z1), i2 = v(x2, z2), i3 = v(x3, z3); B.tri(i0, i1, i2); B.tri(i1, i3, i2); };
     const w = hw * 0.92, len = 2.2;
     for (let s = -w + 0.5; s < w - 0.4; s += 1.15) { const x = cx + nx * s, z = cz + nz * s; rect(x - nx * 0.28 - dx * len / 2, z - nz * 0.28 - dz * len / 2, x + nx * 0.28 - dx * len / 2, z + nz * 0.28 - dz * len / 2, x - nx * 0.28 + dx * len / 2, z - nz * 0.28 + dz * len / 2, x + nx * 0.28 + dx * len / 2, z + nz * 0.28 + dz * len / 2); }
+    const ret = { cx, cz, y, dx, dz, nx, nz };
     const sx = cx + dx * 2.4, sz = cz + dz * 2.4;   // stop line (beyond the crossing, away from the junction)
     rect(sx - nx * w - dx * 0.2, sz - nz * w - dz * 0.2, sx + nx * w - dx * 0.2, sz + nz * w - dz * 0.2, sx - nx * w + dx * 0.2, sz - nz * w + dz * 0.2, sx + nx * w + dx * 0.2, sz + nz * w + dz * 0.2);
+    return ret;
+  }
+  // street furniture along the sidewalks of a street (or on park paths): one item every 38..70 m on a random side
+  _furnish(B, TP, P, hw, seed, park) {
+    let acc = hash(seed) * 40, k = 0;
+    for (let i = 0; i < P.length - 1; i++) {
+      const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], l = Math.hypot(dx, dz) || 1; acc += l;
+      if (acc < (park ? 55 : 70 / this.propDensity) + hash(seed + k * 3.7) * 50) continue; acc = 0; k++;
+      const h = hash(seed * 1.3 + k * 9.1), side = hash(seed + k * 5.9) < 0.5 ? 1 : -1, nx = -dz / l * side, nz = dx / l * side, off = park ? hw + 0.9 : hw + 0.75 + hash(k + seed) * 0.5;
+      const x = P[i][0] + nx * off, z = P[i][1] + nz * off, y = this.heightAt(x, z) + 0.12, yaw = Math.atan2(-nx, -nz);   // front faces the road
+      if (park) { stamp(B, TP.bench, x, y - 0.1, z, yaw); if (h > 0.5) stamp(B, TP.bin, x + dx / l * 1.5, y - 0.1, z + dz / l * 1.5, yaw); continue; }
+      if (h < 0.3) stamp(B, TP.bench, x, y, z, yaw); else if (h < 0.5) stamp(B, TP.bin, x, y, z, yaw); else if (h < 0.64) { for (let j = -1; j <= 1; j++) stamp(B, TP.bollard, x + dx / l * j * 1.6, y, z + dz / l * j * 1.6, 0); }
+      else if (h < 0.74) stamp(B, TP.hydrant, x, y, z, yaw); else if (h < 0.82) stamp(B, TP.mailbox, x, y, z, yaw); else if (h < 0.94) stamp(B, TP.bikerack, x, y, z, Math.atan2(dx, dz)); else { stamp(B, TP.bench, x, y, z, yaw); stamp(B, TP.bin, x + dx / l * 1.5, y, z + dz / l * 1.5, yaw); }
+    }
   }
   _manholes(arr, add) {
     const n = arr.length / 4, g = new THREE.CircleGeometry(0.42, 12).rotateX(-Math.PI / 2), im = new THREE.InstancedMesh(g, this._manholeMat || (this._manholeMat = new THREE.MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.55, metalness: 0.6, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })), n);
