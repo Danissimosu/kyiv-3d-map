@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { makeInteriorAtlas, INT_RECT } from './textures.js';
 const SHOP_THEMES = new Set(['sushi', 'market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr']);
-import { STYLE, classify, assignTypes, furnish } from './rooms.js';
+import { STYLE, classify, assignTypes, furnish, homeTypes, forcePiece } from './rooms.js';
 
 export const DOOR_W = 1.6, DOOR_H = 2.3, WALL_T = 0.3, SLAB = 0.25;
 const DOOR_W_IN = 1.6;
@@ -211,7 +211,7 @@ export class InteriorManager {
   dispose(p) {
     const I = this.active.get(p); if (!I) return;
     for (const k of [...I.levels.keys()]) this.disposeLevel(I, k);
-    this.world.removeOwner(I.owner); this.scene.remove(I.group); I.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    this.world.removeOwner(I.owner); if (I.lockOwner) this.world.removeOwner(I.lockOwner); this.scene.remove(I.group); I.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     if (p.tile.alive) this.world.setDoorLeaf(p, true);
     this.active.delete(p); this.stats.active = this.active.size;
   }
@@ -353,6 +353,16 @@ export class InteriorManager {
     ringC(ring, true); for (const h of holes) ringC(h, false);
     this.scene.add(I.group); this.active.set(p, I); this.stats.active = this.active.size;
     W.setDoorLeaf(p, false);
+    I.homeLevel = p.home ? Math.min(p.home.fl | 0, n - 1) : -1;
+    this._applyLock(p, I);
+  }
+  // tenant's building (js/rent.js): closed door leaf + collider across the doorway until the player holds the key
+  setLock(p, on) { p.locked = !!on; const I = this.active.get(p); if (I) this._applyLock(p, I); }
+  _applyLock(p, I) {
+    const W = this.world; if (I.lockOwner) { W.removeOwner(I.lockOwner); I.lockOwner = null; }
+    if (p.locked) { const d = p.door, rr = p.inner.ring, m = rr.length / 2, i = d.edge, j = (i + 1) % m, ax = rr[2 * i], az = rr[2 * i + 1], bx = rr[2 * j], bz = rr[2 * j + 1];
+      I.lockOwner = { cellKeys: new Set() }; I.addWallC(I.lockOwner, ax + (bx - ax) * d.f0, az + (bz - az) * d.f0, ax + (bx - ax) * d.f1, az + (bz - az) * d.f1, I.F0 - 1, I.topY + 1); W.setDoorLeaf(p, true); }
+    else W.setDoorLeaf(p, false);
   }
 
   // ------------------------------------------------------------------ one level: skin, floors, ceilings, partitions, stairs, furniture
@@ -361,7 +371,8 @@ export class InteriorManager {
     const { F0, sh, n, stair } = I; const Fk = F0 + k * sh, ceilY = (k < n - 1) ? F0 + (k + 1) * sh - SLAB : I.topY - 0.1, yTop = (k < n - 1) ? F0 + (k + 1) * sh : I.topY;
     const rng = rngFrom(p.seed * 31 + k * 7 + 1);
     const ring = p.inner.ring, holes = p.inner.holes, d = p.door, rooms = I.rooms;
-    const types = assignTypes(I.cat, k, n, rooms, rng);
+    const isHome = p.home && k === I.homeLevel;
+    const types = isHome ? homeTypes(rooms, rng) : assignTypes(I.cat, k, n, rooms, rng);
     const sty = rooms.map((r, i) => { const S = STYLE[types[i]]; return { S, wallT: S.brand ? S.wallT.map((c, j) => c * I.brand[j]) : S.wallT }; });
     I.types = I.types || {}; I.types[k] = types;
     const mul = (a, b, f = 1) => [a[0] * b[0] * f, a[1] * b[1] * f, a[2] * b[2] * f];
@@ -507,8 +518,9 @@ export class InteriorManager {
       const R = rooms[ri]; if (R.area < 6) continue;
       const placed = [];
       const ctx = { rng: rngFrom(p.seed * 131 + k * 17 + ri), inside: (u, v) => { const q = I.toXZ(u, v); return I.inside_fn(q[0], q[1]); }, clear: I.clear, placed };
-      for (const b of furnish(types[ri], R, ctx)) boxes.push(b);
+      const nb = furnish(types[ri], R, ctx); for (const b of nb) { b.ri = ri; boxes.push(b); }
     }
+    if (isHome) this._homeSpots(I, k, types, boxes, rng);
     let fmesh = null;
     if (boxes.length) {
       const geo = furnBase().clone(), N = boxes.length, ra = new Float32Array(N * 4), ic = new Float32Array(N * 3);
@@ -539,6 +551,23 @@ export class InteriorManager {
     if (dmesh) this._poseDoors(Lv, true);
   }
 }
+
+// tenant's level: guarantee a bed and a fridge, remember where they are (+ a safe spawn spot) for js/rent.js
+InteriorManager.prototype._homeSpots = function (I, k, types, boxes, rng) {
+  const rooms = I.rooms, Fk = I.F0 + k * I.sh, big = rooms.map((r, i) => i).filter(i => rooms[i].area >= 6 && !rooms[i].stair).sort((a, b) => rooms[b].area - rooms[a].area);
+  const find = nm => { const f = boxes.filter(b => b.piece === nm); return f.length ? f.filter(b => b.ri === f[0].ri && b.pid === f[0].pid) : f; };
+  const ensure = (nm, prefer, dx) => {
+    if (find(nm).length) return;
+    const ri = (big.find(i => prefer.includes(types[i])) ?? big[0]); if (ri === undefined) return;
+    for (const b of forcePiece(nm, rooms[ri], rng, dx)) { b.ri = ri; boxes.push(b); }
+  };
+  ensure('bed', ['bedroom', 'living'], -0.3); ensure('fridge', ['kitchen'], 0);
+  const spot = nm => { const bs = find(nm); if (!bs.length) return null; let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9; for (const b of bs) { u0 = Math.min(u0, b.u0); u1 = Math.max(u1, b.u1); v0 = Math.min(v0, b.v0); v1 = Math.max(v1, b.v1); }
+    const q = I.toXZ((u0 + u1) / 2, (v0 + v1) / 2); return { x: q[0], z: q[1], y: Fk, ri: bs[0].ri, uv: [u0, u1, v0, v1] }; };
+  const bed = spot('bed'), fr = spot('fridge');
+  let sp = null; if (bed) { const R = rooms[bed.ri], c = I.toXZ((R.u0 + R.u1) / 2, (R.v0 + R.v1) / 2); sp = { x: c[0], z: c[1], y: Fk }; }
+  I.homeSpots = { level: k, bed, fridge: fr, spawn: sp || bed, types: types.slice() };
+};
 
 let FURN = null;
 function furnBase() {

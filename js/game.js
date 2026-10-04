@@ -5,6 +5,7 @@ import { JOBDEFS, scheduleText } from './jobs.js';
 import { WD, hhmm } from './clock.js';
 
 export const ITEMS = {
+  homekey: { n: 'Ключ от квартиры', icon: '🔑', stack: 1, info: 'Без ключа дверь съёмной квартиры закрыта' },
   phone:   { n: 'Смартфон', icon: '📱', stack: 1, info: 'Карта с GPS, ближайшие места и работа' },
   burger:  { n: 'Бургер', icon: '🍔', food: 32 }, fries: { n: 'Картофель фри', icon: '🍟', food: 18 }, cola: { n: 'Кола', icon: '🥤', water: 30 }, coffee: { n: 'Кофе', icon: '☕', water: 12, food: 3 },
   borsch:  { n: 'Борщ', icon: '🍲', food: 28, water: 8 }, vareniki: { n: 'Вареники', icon: '🥟', food: 30 }, kompot: { n: 'Компот', icon: '🧃', water: 28 }, deruny: { n: 'Деруны', icon: '🥔', food: 22 },
@@ -49,7 +50,7 @@ export class Game {
     for (const [ev, v] of [['pointerdown', true], ['pointerup', false], ['pointercancel', false], ['pointerleave', false]]) this.bAct.addEventListener(ev, () => { this.holdE = v; });
   }
   _load() {
-    const def = { hp: 100, food: 82, water: 82, money: 300, inv: [{ id: 'phone', n: 1 }, { id: 'water', n: 1 }, { id: 'bread', n: 1 }], job: null, jobs: 0 };
+    const def = { hp: 100, food: 82, water: 82, money: 300, inv: [{ id: 'phone', n: 1 }, { id: 'water', n: 1 }, { id: 'bread', n: 1 }], job: null, jobs: 0, home: null };
     return def;
   }
   _save() { this.dirty = 0; }   // persistence lives in save.js (slots)
@@ -79,13 +80,13 @@ export class Game {
     this.deadP.body.innerHTML = `<p style="font-size:17px">${why || 'Вы потеряли сознание'}.<br>Вас нашли и отвезли на вокзал. Потеряно ₴${lost}.</p>`;
     const b = el('div', 'btn', 'Очнуться', this.deadP.body); tap(b, () => { this.deadP.close(); this.respawn(); }); this.deadP.open();
   }
-  respawn() { const S = this.S; S.hp = 50; S.food = Math.max(S.food, 45); S.water = Math.max(S.water, 45); this.dead = false; const s = this.ctx.START; this.ctx.teleport(s.x, s.z, THREE.MathUtils.degToRad(s.yaw), 0); this.dirty = 1; this.refresh(); this.onRespawn && this.onRespawn(); }
+  respawn() { const S = this.S; S.hp = 50; S.food = Math.max(S.food, 45); S.water = Math.max(S.water, 45); this.dead = false; const s = this.ctx.START; if (!(this.rent && this.rent.respawnHome())) this.ctx.teleport(s.x, s.z, THREE.MathUtils.degToRad(s.yaw), 0); this.dirty = 1; this.refresh(); this.onRespawn && this.onRespawn(); }
   // ---------------------------------------------------------------- UI
   _ui() {
     const { IS_TOUCH } = this.ctx; this.sv = el('div', 'svhud', '', document.body);
     this.sv.style.cssText = (IS_TOUCH ? 'font-size:11px;' : '') + 'position:fixed;left:50%;transform:translateX(-50%);top:calc(8px + env(safe-area-inset-top));z-index:6;display:flex;gap:8px;align-items:center;padding:3px 9px;background:rgba(12,18,26,.62);border-radius:12px;color:#fff;font:600 12px -apple-system,system-ui,sans-serif;pointer-events:none;font-variant-numeric:tabular-nums';
     const bar = (ic, c) => { const w = el('span', '', `<span>${ic}</span><span style="display:inline-block;width:${IS_TOUCH ? 30 : 50}px;height:7px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-left:3px"><i style="display:block;height:100%;width:100%;background:${c}"></i></span>`, this.sv); return w.querySelector('i'); };
-    this.bHp = bar('❤', '#e74c3c'); this.bFood = bar('🍖', '#e6a23c'); this.bWater = bar('💧', '#3fa7f0'); this.moneyEl = el('span', '', '', this.sv); this.clockEl = el('span', '', '', this.sv); this.clockEl.style.cssText = 'opacity:.85;font-size:11px';
+    this.bHp = bar('❤', '#e74c3c'); this.bFood = bar('🍖', '#e6a23c'); this.bWater = bar('💧', '#3fa7f0'); this.moneyEl = el('span', '', '', this.sv); this.clockEl = el('span', '', '', this.sv); this.clockEl.style.cssText = 'opacity:.85;font-size:11px'; this.rentEl = el('div', '', '', document.body); this.rentEl.className = 'hl'; this.rentEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:calc(' + (IS_TOUCH ? 30 : 38) + 'px + env(safe-area-inset-top));z-index:6;display:none;padding:2px 9px;border-radius:10px;font:600 ' + (IS_TOUCH ? 10 : 12) + 'px system-ui;color:#fff;white-space:nowrap;pointer-events:none;background:rgba(255,200,80,.3)';
     this.flashEl = el('div', '', '', document.body); this.flashEl.style.cssText = 'position:fixed;inset:0;z-index:5;pointer-events:none;background:radial-gradient(transparent 40%,rgba(200,0,0,.55));opacity:0;transition:opacity .25s';
     this.actEl = el('div', '', '', document.body); this.actEl.className = 'hl'; this.actEl.style.cssText = IS_TOUCH ? 'position:fixed;top:calc(32px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(255,217,102,.7);color:#111;font:700 11px system-ui;padding:2px 8px;border-radius:10px;white-space:nowrap;pointer-events:none' : 'position:fixed;left:50%;transform:translateX(-50%);top:calc(52px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(255,217,102,.72);color:#111;font:700 13px system-ui;padding:4px 12px;border-radius:14px;white-space:nowrap;pointer-events:none';
     // buttons
@@ -101,7 +102,7 @@ export class Game {
   }
   refresh() {
     const S = this.S; this.bHp.style.width = S.hp + '%'; this.bFood.style.width = S.food + '%'; this.bWater.style.width = S.water + '%';
-    this.moneyEl.textContent = '₴' + Math.floor(S.money); if (this.clockEl) this.clockEl.textContent = '🕒 ' + this.ctx.clock.text; if (this.invP && this.invP.isOpen) this._drawInv();
+    this.moneyEl.textContent = '₴' + Math.floor(S.money); if (this.clockEl) { this.clockEl.textContent = '🕒 ' + this.ctx.clock.text + ' · ' + this.ctx.clock.dateText; const h = this.rent && this.rent.hud(); this.rentEl.style.display = h ? '' : 'none'; if (h) { this.rentEl.textContent = h.text; this.rentEl.style.background = h.warn ? 'rgba(231,76,60,.55)' : 'rgba(255,200,80,.25)'; } } if (this.invP && this.invP.isOpen) this._drawInv();
   }
   _drawInv() {
     const b = this.invP.body, S = this.S; b.innerHTML = '';
@@ -120,12 +121,13 @@ export class Game {
     const info = el('div', '', '', b); this.pTab = 'map';
     const nearby = el('div', '', '', b), bal = el('div', '', '', b); b.insertBefore(cv, info);
     const zoomRow = el('div', 'chips', '', b); b.insertBefore(zoomRow, info);
-    tap(el('span', 'chip', '＋', zoomRow), () => { this.pk = Math.min(1.6, this.pk * 1.6); }); tap(el('span', 'chip', '－', zoomRow), () => { this.pk = Math.max(0.03, this.pk / 1.6); });
-    const sh = () => { cv.style.display = zoomRow.style.display = this.pTab === 'map' || this.pTab === 'taxi' ? '' : 'none'; nearby.style.display = this.pTab === 'near' || this.pTab === 'bus' || this.pTab === 'taxi' ? '' : 'none'; bal.style.display = this.pTab === 'bal' ? '' : 'none';
-      tabs.innerHTML = ''; [['map', '🗺 GPS'], ['near', '📍 Рядом'], ...(this.transit && this.transit.loaded ? [['bus', '🚏 Транспорт']] : []), ...(this.taxi ? [['taxi', '🚕 Такси']] : []), ['bal', '💳 Баланс']].forEach(([k, t]) => tap(el('span', 'chip' + (this.pTab === k ? ' on' : ''), t, tabs), () => { this.pTab = k; sh(); fill(); })); };
+    tap(el('span', 'chip', '＋', zoomRow), () => { if (this.pTab === 'rent' && this.rent) this.rent.view.k = Math.min(1.6, this.rent.view.k * 1.6); else this.pk = Math.min(1.6, this.pk * 1.6); }); tap(el('span', 'chip', '－', zoomRow), () => { if (this.pTab === 'rent' && this.rent) this.rent.view.k = Math.max(0.004, this.rent.view.k / 1.6); else this.pk = Math.max(0.03, this.pk / 1.6); });
+    const sh = () => { cv.style.display = zoomRow.style.display = this.pTab === 'map' || this.pTab === 'taxi' || this.pTab === 'rent' ? '' : 'none'; nearby.style.display = this.pTab === 'near' || this.pTab === 'bus' || this.pTab === 'taxi' || this.pTab === 'rent' ? '' : 'none'; bal.style.display = this.pTab === 'bal' ? '' : 'none';
+      tabs.innerHTML = ''; [['map', '🗺 GPS'], ['near', '📍 Рядом'], ...(this.transit && this.transit.loaded ? [['bus', '🚏 Транспорт']] : []), ...(this.taxi ? [['taxi', '🚕 Такси']] : []), ...(this.rent ? [['rent', '🏠 Жильё']] : []), ['bal', '💳 Баланс']].forEach(([k, t]) => tap(el('span', 'chip' + (this.pTab === k ? ' on' : ''), t, tabs), () => { this.pTab = k; sh(); fill(); })); };
     const fill = () => {
       if (this.pTab === 'bus') this.transit.fillPhone(nearby);
       else if (this.pTab === 'taxi') this.taxi.fillPhone(nearby);
+      else if (this.pTab === 'rent') this.rent.fillPhone(nearby);
       else if (this.pTab === 'near') {
         nearby.innerHTML = ''; for (const grp of ['shop', 'food', 'job']) for (const { poi, dist } of this.pois.nearest(P.x, P.z, q => q.group === grp, 4)) {
           const r = el('div', 'row', '', nearby); el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'}</small>`, r);
@@ -136,12 +138,14 @@ export class Game {
     };
     sh();
     const draw = () => {
-      if (!p.isOpen) return; const g = cv.getContext('2d'); ctx.paintMap(g, 320, 320, P.x, P.z, this.pk, true); this.pois.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true); this.transit && this.transit.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true); this.taxi && this.taxi.drawMarkers(g, 320, 320, P.x, P.z, this.pk, true);
-      g.save(); g.translate(160, 160); g.rotate(-P.yaw); g.fillStyle = '#2d7ff9'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 9); g.lineTo(0, 4); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
-      g.fillStyle = '#fff'; g.font = 'bold 12px sans-serif'; g.fillText('С ↑', 6, 14); g.fillText(`${(1 / this.pk * 40).toFixed(0)} м ▭`, 6, 312);
+      if (!p.isOpen) return; const g = cv.getContext('2d'), RV = this.pTab === 'rent' && this.rent ? this.rent.view : null, cx = RV ? RV.x : P.x, cz = RV ? RV.z : P.z, kk = RV ? RV.k : this.pk; ctx.paintMap(g, 320, 320, cx, cz, kk, true);
+      if (RV) this.rent.drawMarkers(g, 320, 320, cx, cz, kk, true); else { this.pois.drawMarkers(g, 320, 320, cx, cz, kk, true); this.transit && this.transit.drawMarkers(g, 320, 320, cx, cz, kk, true); this.taxi && this.taxi.drawMarkers(g, 320, 320, cx, cz, kk, true); this.rent && this.rent.drawHome(g, 320, 320, cx, cz, kk); }
+      g.save(); g.translate(160 + (P.x - cx) * kk, 160 + (P.z - cz) * kk); g.rotate(-P.yaw); g.fillStyle = '#2d7ff9'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 9); g.lineTo(0, 4); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
+      g.fillStyle = '#fff'; g.font = 'bold 12px sans-serif'; g.fillText('С ↑', 6, 14); g.fillText(`${(1 / kk * 40).toFixed(0)} м ▭`, 6, 312);
       if (this.pTab === 'near' || this.pTab === 'bal' || this.pTab === 'bus' || this.pTab === 'taxi') fill();
+      else if (this.pTab === 'rent') this.rent.tick();
     };
-    tap(cv, ev => { if (this.pTab !== 'taxi' || !this.taxi) return; const t = ev.changedTouches ? ev.changedTouches[0] : ev, r = cv.getBoundingClientRect(); const px = (t.clientX - r.left) / r.width * 320, py = (t.clientY - r.top) / r.height * 320; this.taxi.mapTap(P.x + (px - 160) / this.pk, P.z + (py - 160) / this.pk); draw(); });
+    tap(cv, ev => { if (this.pTab === 'rent' && this.rent) { const t = ev.changedTouches ? ev.changedTouches[0] : ev, r = cv.getBoundingClientRect(); this.rent.mapTap((t.clientX - r.left) / r.width * 320, (t.clientY - r.top) / r.height * 320); return; } if (this.pTab !== 'taxi' || !this.taxi) return; const t = ev.changedTouches ? ev.changedTouches[0] : ev, r = cv.getBoundingClientRect(); const px = (t.clientX - r.left) / r.width * 320, py = (t.clientY - r.top) / r.height * 320; this.taxi.mapTap(P.x + (px - 160) / this.pk, P.z + (py - 160) / this.pk); draw(); });
     p.onOpen = () => { sh(); fill(); this._ph = setInterval(draw, 400); draw(); }; p.onClose = () => clearInterval(this._ph);
   }
   // ---------------------------------------------------------------- service pads inside shops / job offices

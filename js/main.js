@@ -8,6 +8,7 @@ import { Jobs } from './jobs.js';
 import { UI } from './ui.js';
 import { Menu } from './menu.js';
 import { TaxiApp } from './taxi.js';
+import { Rent } from './rent.js';
 import { SaveSystem, newestSave, hasSave } from './save.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
@@ -171,7 +172,8 @@ async function main() {
   try { await transit.load(BASE); } catch (e) { console.warn('transit load failed', e); } pois.transit = transit;
   const jobs = new Jobs({ P, world, scene, pois, city, clock, game, crime, transit, qs, keys, T, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
   const taxiApp = new TaxiApp({ P, city, world, game, jobs, transit, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit) }); game.taxi = taxiApp;
-  if (MENU) saves = new SaveSystem({ taxi: taxiApp, P, game, crime, jobs, transit, clock, city, pois, world, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), START, defaults: () => game.defaults(),
+  const rent = new Rent({ game, world, scene, pois, clock, P, ll2xz, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), jobs, crime, transit, taxi: taxiApp, getSaves: () => saves });
+  if (MENU) saves = new SaveSystem({ rent, taxi: taxiApp, P, game, crime, jobs, transit, clock, city, pois, world, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), START, defaults: () => game.defaults(),
     placeName: () => { let b = null, bd = 1e9; for (const l of LANDMARKS) { const [x, z] = lmXZ(l); const d = Math.hypot(x - P.x, z - P.z); if (d < bd) { bd = d; b = l[0]; } } return b && bd < 900 ? 'у: ' + b.replace(/ \(старт\)/, '') : ''; } });
   UI.onModal = n => { if (!n && !IS_TOUCH && started && !game.dead) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} };
 
@@ -363,7 +365,7 @@ async function main() {
     if (spawned) world.update(P, dt, MOB ? 3 : 6);
     if (saves && saves.pending) saves.applyPending();
     if (spawned && paused && menuMain) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); transit.update(P, dt); }   // the menu backdrop shows moving traffic and transit
-    else if (spawned && !paused) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); jobs.update(P, dt); taxiApp.update(P, dt); }
+    else if (spawned && !paused) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); jobs.update(P, dt); taxiApp.update(P, dt); rent.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
       const sx = SPX, sz = SPZ;
@@ -396,7 +398,7 @@ async function main() {
     if (nr && !P.fly) {
       const I = world.interiors.active.get(nr.plan), d = nr.plan.door;
       if (I && I.inside) txt = `выход — ${nr.dist.toFixed(0)} м${I.n > 1 ? ' · этаж ' + (I.cur + 1) + '/' + I.n : ''}`;
-      else if (nr.dist < 14) { const vx = d.mx - P.x, vz = d.mz - P.z, fw = -vx * Math.sin(P.yaw) - vz * Math.cos(P.yaw), rt = vx * Math.cos(P.yaw) - vz * Math.sin(P.yaw), a = Math.atan2(rt, fw), ar = Math.abs(a) < 0.5 ? '↑' : a > 0 ? '→' : '←'; txt = `🚪 вход ${ar} ${nr.dist.toFixed(0)} м`; }
+      else if (nr.dist < 14) { const vx = d.mx - P.x, vz = d.mz - P.z, fw = -vx * Math.sin(P.yaw) - vz * Math.cos(P.yaw), rt = vx * Math.cos(P.yaw) - vz * Math.sin(P.yaw), a = Math.atan2(rt, fw), ar = Math.abs(a) < 0.5 ? '↑' : a > 0 ? '→' : '←'; txt = `${nr.plan.locked ? '🔒 дверь закрыта' : '🚪 вход'} ${ar} ${nr.dist.toFixed(0)} м`; }
     }
     if (txt !== dhTxt) { dhTxt = txt; dh.textContent = txt; dh.style.display = txt ? 'block' : 'none'; }
   }
@@ -413,7 +415,7 @@ async function main() {
       тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}<br>${transit.hudLine()}`;
     $('hudtxt').innerHTML = IS_TOUCH && !hudOpen ? `${fps.toFixed(0)} fps · Q${qLevel}` : full;
   }
-  window.__kyiv = { post, fx, skyfx, city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; }, taxi: taxiApp, get saves() { return saves; }, get menu() { return menu; }, openPause, autosave, get paused() { return paused; } };
+  window.__kyiv = { rent, get saves() { return saves; }, post, fx, skyfx, city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; }, taxi: taxiApp, get saves() { return saves; }, get menu() { return menu; }, openPause, autosave, get paused() { return paused; } };
   requestAnimationFrame(frame);
 }
 main().catch(e => { console.error(e); const m = document.getElementById('msg'); if (m) m.textContent = 'Ошибка: ' + e.message; });

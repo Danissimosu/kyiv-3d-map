@@ -207,8 +207,8 @@ const PLAN = {
 };
 
 // place furniture against the walls of a leaf rect (uv). ctx: { inside(u,v), clear: [[u,v,r]], rng, placed: [[u0,u1,v0,v1]] }
-export function furnish(type, R, ctx) {
-  const out = [], rng = ctx.rng, names = PLAN[type] || [];
+export function furnish(type, R, ctx, namesOverride) {
+  const out = [], rng = ctx.rng, names = namesOverride || PLAN[type] || [];
   const W = R.u1 - R.u0, H = R.v1 - R.v0; if (W < 2.0 || H < 2.0) return out;
   const maxN = Math.min(names.length, Math.floor((W + H) / 2.2) + 1);
   const sides = [0, 1, 2, 3];
@@ -244,12 +244,37 @@ export function furnish(type, R, ctx) {
           else if (s === 1) { bu0 = u0 + b.a0; bu1 = u0 + b.a1; bv1 = v1 - b.b0; bv0 = v1 - b.b1; }
           else if (s === 2) { bv0 = v0 + b.a0; bv1 = v0 + b.a1; bu0 = u0 + b.b0; bu1 = u0 + b.b1; }
           else { bv0 = v0 + b.a0; bv1 = v0 + b.a1; bu1 = u1 - b.b0; bu0 = u1 - b.b1; }
-          out.push({ u0: bu0, u1: bu1, v0: bv0, v1: bv1, y0: b.y0, y1: b.y1, rect: b.rect, color: b.color, solid: b.solid && b.y1 > 0.5 });
+          out.push({ u0: bu0, u1: bu1, v0: bv0, v1: bv1, y0: b.y0, y1: b.y1, rect: b.rect, color: b.color, solid: b.solid && b.y1 > 0.5, piece: nm, pid: n });
         }
         placed = true; n++;
       }
       if (placed) break;
     }
   }
+  return out;
+}
+
+// ---- rented home (js/rent.js): room types for the tenant's level + guaranteed bed / fridge / kitchen counter
+// rooms: [{area, door, stair}] -> types[]
+export function homeTypes(rooms, rng) {
+  const n = rooms.length, types = new Array(n).fill('hallway');
+  if (n === 1) return ['living'];
+  const idx = rooms.map((r, i) => i).filter(i => rooms[i].area >= 3);
+  const free = idx.filter(i => !rooms[i].stair && !rooms[i].door);
+  const hall = idx.filter(i => !free.includes(i));
+  for (const i of hall) types[i] = rooms[i].area >= 12 ? 'living' : 'hallway';
+  const rest = free.slice().sort((a, b) => rooms[a].area - rooms[b].area), m = rest.length;
+  const nb = m >= 3 ? Math.max(1, Math.round(m / 7)) : 0, nk = m >= 2 ? Math.max(1, Math.round(m / 9)) : 0, nl = m >= 1 ? Math.max(1, Math.round(m / 10)) : 0;
+  const bath = rest.filter(i => rooms[i].area < 16).slice(0, nb); for (const i of bath) { types[i] = 'bathroom'; rest.splice(rest.indexOf(i), 1); }
+  for (const i of rest.splice(0, nk)) types[i] = 'kitchen';
+  rest.sort((a, b) => rooms[b].area - rooms[a].area);
+  rest.forEach((i, k) => { types[i] = k < nl ? 'living' : 'bedroom'; });
+  if (!types.includes('bedroom') && !types.includes('living') && free.length) types[free[free.length - 1]] = 'living';
+  return types;
+}
+// a piece placed in the middle of the room without any checks (last resort when furnish() found no free wall)
+export function forcePiece(name, R, rng, dx = 0) {
+  const pc = PIECES[name](rng), cu = (R.u0 + R.u1) / 2 - pc.w / 2 + dx, cv = (R.v0 + R.v1) / 2 - pc.d / 2, out = [];
+  for (const b of pc.boxes) out.push({ u0: cu + b.a0, u1: cu + b.a1, v0: cv + b.b0, v1: cv + b.b1, y0: b.y0, y1: b.y1, rect: b.rect, color: b.color, solid: b.solid && b.y1 > 0.5, piece: name, pid: 0 });
   return out;
 }

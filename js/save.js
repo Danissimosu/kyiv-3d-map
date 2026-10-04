@@ -55,7 +55,7 @@ export class SaveSystem {
   newGame() {
     this._resetWorld(); const { game, clock, P } = this;
     game.S = this.defaults(); game.dirty = 1; game.refresh(); clock.set(0, 8 * 60); clock.day = 0;
-    const s = this.START; P.fly = false; this.teleport(s.x, s.z, s.yaw * Math.PI / 180, 0);
+    const s = this.START; P.fly = false; this.teleport(s.x, s.z, s.yaw * Math.PI / 180, 0); if (this.rent) this.rent.afterLoad();
     this.dropClones && this.dropClones();
   }
   load(s) {
@@ -65,6 +65,7 @@ export class SaveSystem {
     P.fly = !!s.P.fly; this.teleport(s.P.x, s.P.z, s.P.yaw, s.P.pitch);
     P.restoreY = P.wait ? s.P.y : undefined; P.y = s.P.y; P.eye = P.y + 1.7;     // exact height (teleport() lands on the highest surface = roofs)
     crime.heat = s.crime ? s.crime.heat : 0;
+    if (this.rent) { this.rent.afterLoad(); this.rent.applyLoadSpawn(s); }
     this.pending = s;                                         // cars / job are restored once the tiles around the player exist
     this.applyPending();
   }
