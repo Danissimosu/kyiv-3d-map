@@ -13,6 +13,7 @@ export const STYLE = {
   market:   { name: 'торговый зал', floor: 'checker', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 1.0, 1.0], ceilT: [1.08, 1.08, 1.08], floorT: [1.05, 1.05, 1.05], win: true, brand: true },
   fastfood: { name: 'фастфуд', floor: 'tiles', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 0.9, 0.75], ceilT: [1.08, 1.05, 1.0], floorT: [1.0, 0.95, 0.9], win: true, brand: true },
   dining:   { name: 'зал ресторана', floor: 'plank', wall: 'brick', ceil: 'ceiling', wallT: [1.0, 0.85, 0.7], ceilT: [0.8, 0.66, 0.55], floorT: [1, 0.92, 0.84], win: true, brand: true },
+  sushi:    { name: 'суши-бар', floor: 'plank', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 0.8, 0.76], ceilT: [0.8, 0.72, 0.7], floorT: [0.9, 0.78, 0.7], win: true },
   mcd:      { name: 'McDonald\'s-стиль: зал', floor: 'tiles', wall: 'plaster', ceil: 'ceiling', wallT: [1.0, 0.86, 0.74], ceilT: [0.9, 0.88, 0.86], floorT: [0.9, 0.9, 0.95], win: true },
   puzata:   { name: 'столовая (раздача)', floor: 'plank', wall: 'plaster', ceil: 'plank', wallT: [0.74, 0.92, 0.7], ceilT: [0.95, 0.82, 0.7], floorT: [1, 0.9, 0.78], win: true },
   silpo:    { name: 'супермаркет', floor: 'stone', wall: 'plaster', ceil: 'ceiling', wallT: [0.9, 1.0, 0.92], ceilT: [0.66, 0.68, 0.68], floorT: [1.12, 1.12, 1.1], win: true },
@@ -39,8 +40,8 @@ export function classify(kind, seedU) {
 }
 
 // leaves: [{area, door, stair}] -> types[]
-const THEMES = { market: 'market', fastfood: 'fastfood', dining: 'dining', diy: 'diy', mcd: 'mcd', puzata: 'puzata', silpo: 'silpo', epicentr: 'epicentr', util: 'wkoffice', depot: 'wkdepot', prison: 'cell' };
-const PUBLIC = new Set(['market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr']);
+const THEMES = { market: 'market', fastfood: 'fastfood', dining: 'dining', diy: 'diy', sushi: 'sushi', mcd: 'mcd', puzata: 'puzata', silpo: 'silpo', epicentr: 'epicentr', util: 'wkoffice', depot: 'wkdepot', prison: 'cell' };
+const PUBLIC = new Set(['sushi', 'market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr']);
 export const POI_THEMES = THEMES;
 function assignThemed(cat, level, nLevels, leaves, rng) {
   const main = THEMES[cat], pub = PUBLIC.has(cat);
@@ -51,7 +52,7 @@ function assignThemed(cat, level, nLevels, leaves, rng) {
     if (level === 0) { const big = order.find(i => t[i] === 'cell'); if (big !== undefined && leaves.length > 2) t[big] = 'hallway'; }
     return t;
   }
-  if (level > 0) return leaves.map(() => 'office');
+  if (level > 0) return leaves.map(() => pub ? ((cat === 'market' || cat === 'silpo' || cat === 'diy' || cat === 'epicentr') ? 'wkdepot' : 'staff') : cat === 'depot' ? 'staff' : 'office');   // shops: storage / staff rooms upstairs
   if (leaves.length === 1) return [main];
   const types = leaves.map(() => 'hallway'); const order = leaves.map((l, i) => i).sort((a, b) => leaves[b].area - leaves[a].area);
   let bath = false;
@@ -141,6 +142,7 @@ const PIECES = {
 
   // ---- design pack pieces (brand zones from manifest.json) -------------------------------------------------------------
   poster(rect, w = 1.5, y0 = 1.2) { const h = w / 1.5; return { w, d: 0.06, boxes: [B(-0.04, w + 0.04, 0, 0.03, y0 - 0.04, y0 + h + 0.04, 'dark', [0.12, 0.12, 0.13], false), B(0, w, 0, 0.055, y0, y0 + h, rect, [1.05, 1.05, 1.05], false)] }; },
+  sushiBar() { const bx = [B(0, 4.0, 0, 0.8, 0, 1.0, 'wood', [0.45, 0.2, 0.14]), B(0, 4.0, 0, 0.85, 1.0, 1.05, 'dark', [0.1, 0.1, 0.11], false), B(0, 4.0, 0.1, 0.7, 1.05, 1.5, 'bWhite', [0.8, 0.92, 0.95], false)]; const cs = [[0.95, 0.5, 0.35], [0.97, 0.97, 0.95], [0.85, 0.2, 0.2], [0.3, 0.55, 0.3]]; for (let i = 0; i < 10; i++) bx.push(B(0.15 + i * 0.37, 0.4 + i * 0.37, 0.25, 0.5, 1.05, 1.15, 'carpet', cs[i % 4], false)); bx.push(B(0, 4.0, 0, 0.1, 1.9, 2.4, 'bMcdR', [0.9, 0.9, 0.9], false)); return { w: 4.0, d: 0.85, boxes: bx }; },
   // McDonald's: order counter with light-wood front + menu boards, self-order kiosks, red booths with yellow chairs
   mcdCounter() { return { w: 4.0, d: 0.8, boxes: [B(0, 4.0, 0, 0.8, 0, 1.0, 'wood', [1.05, 0.95, 0.8]), B(0, 4.0, 0, 0.85, 1.0, 1.06, 'dark', [0.16, 0.16, 0.18], false), B(0.1, 3.9, 0, 0.1, 1.06, 1.9, 'dark', [0.5, 0.5, 0.52], false),
     B(0.2, 1.2, 0, 0.12, 2.0, 2.5, 'bMcdR', [1, 1, 1], false), B(1.35, 2.55, 0, 0.12, 2.0, 2.5, 'bMcdY', [1, 1, 1], false), B(2.7, 3.8, 0, 0.12, 2.0, 2.5, 'bMcdR', [1, 1, 1], false), B(0.4, 0.8, 0.25, 0.55, 1.06, 1.3, 'dark', [0.08, 0.08, 0.09], false)] }; },
@@ -178,6 +180,7 @@ const PIECES = {
   plant() { return { w: 0.5, d: 0.5, boxes: [B(0.1, 0.4, 0.1, 0.4, 0, 0.35, 'dark', [0.5, 0.3, 0.2], false), B(0.0, 0.5, 0.0, 0.5, 0.35, 1.3, 'carpet', [0.2, 0.55, 0.25], false)] }; },
 };
 const PLAN = {
+  sushi: ['sushiBar', 'cafeTable', 'cafeTable', 'cafeTable', 'cafeTable', 'plant'],
   mcd: ['mcdCounter', 'mcdKiosk', 'redBooth', 'redBooth', 'poster:pMcdI', 'yellowTable', 'redBooth', 'mcdKiosk', 'yellowTable', 'plant'],
   puzata: ['servingLine', 'embroidery', 'woodTable', 'woodTable', 'poster:pPuzI', 'carvedShelf', 'woodTable', 'plant'],
   silpo: ['produce', 'silFridge', 'silShelf', 'produce', 'silCheckout', 'poster:pSilI', 'silShelf', 'silCheckout', 'bakery', 'silShelf', 'plant'],

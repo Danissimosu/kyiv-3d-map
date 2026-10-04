@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { $, UI, el, tap, toast, panel } from './ui.js';
 import { designImage, FacadeKits, KIT_FOR } from './design.js';
+import { JOBDEFS, scheduleText } from './jobs.js';
 
 export const CAT_INFO = {
   puzata:   { icon: '🍲', brand: 0x3e6e3e, theme: 'puzata',   svc: 'shop' },
@@ -10,7 +11,7 @@ export const CAT_INFO = {
   silpo:    { icon: '🛒', brand: 0x008c46, theme: 'silpo',   svc: 'shop' },
   atb:      { icon: '🛒', brand: 0x2f6fc0, theme: 'market',   svc: 'shop' },
   epicentr: { icon: '🛠', brand: 0xf4c418, theme: 'epicentr',      svc: 'shop' },
-  sushi:    { icon: '🍣', brand: 0xc4143c, theme: 'dining',   svc: 'shop' },
+  sushi:    { icon: '🍣', brand: 0xc4143c, theme: 'sushi',   svc: 'shop' },
   dvornik:  { icon: '🧹', brand: 0x4a8f4e, theme: 'util',     svc: 'job' },
   gruzchik: { icon: '📦', brand: 0x9b7b4b, theme: 'depot',    svc: 'job' },
   kurier:   { icon: '🛵', brand: 0xe0533d, theme: 'util',     svc: 'job' },
@@ -92,8 +93,12 @@ export class PoiLayer {
       const pl = poi.pl; if (!pl || !pl.tile || !pl.tile.alive) continue;
       const d = pl.door, dx = d.mx - P.x, dz = d.mz - P.z; if (dx * dx + dz * dz > R2 || tot >= this.maxSign) continue;
       const m = this.signMeshes[poi.ci], n = cnt[poi.ci]; if (n >= 60) continue;
-      const w = poi.key === 'sizo' ? 5 : 3.6; const y = (pl.F0 || 0) + 2.75 + (poi.key === 'sizo' ? 0.4 : 0);
-      this._q.setFromAxisAngle(this._up, Math.atan2(d.nx, d.nz)); this._p.set(d.mx + d.nx * 0.09, y + 0.45, d.mz + d.nz * 0.09); this._s.set(w, w / 4, 1);
+      let w = poi.key === 'sizo' ? 5 : 3.6, yc = (pl.F0 || 0) + 2.75 + (poi.key === 'sizo' ? 0.4 : 0) + 0.45;
+      if (poi.cat.svc === 'shop' && pl.eave !== undefined) {   // shop / fast-food: large readable sign on the brand fascia band above the storefront glass
+        const sf = Math.max(1.8, Math.min(3.6, pl.eave - pl.g - 1.3)), fas = pl.eave - pl.g - sf, r = pl.ring, i = d.edge, j = (i + 1) % (r.length / 2), L = Math.hypot(r[2 * j] - r[2 * i], r[2 * j + 1] - r[2 * i + 1]);
+        w = Math.max(3.6, Math.min(L * 0.8, 9, Math.max(1.2, fas * 0.88) * 4)); yc = pl.g + sf + fas / 2;
+      }
+      this._q.setFromAxisAngle(this._up, Math.atan2(d.nx, d.nz)); this._p.set(d.mx + d.nx * 0.09, yc, d.mz + d.nz * 0.09); this._s.set(w, w / 4, 1);
       this._m.compose(this._p, this._q, this._s); m.setMatrixAt(n, this._m); cnt[poi.ci]++; tot++;
       if (KIT_FOR[poi.key]) this.kits.add(poi.key, d, pl.F0 || 0);
     }
@@ -142,6 +147,7 @@ export class PoiLayer {
     const x0 = cx - W / 2 / k - 20, x1 = cx + W / 2 / k + 20, z0 = cz - H / 2 / k - 20, z1 = cz + H / 2 / k + 20;
     const showAll = k >= 0.1, r = big ? (k > 0.3 ? 6 : 4) : 3.5;
     g.save(); g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (this.extra) for (const m of this.extra) { if (m.x < x0 || m.x > x1 || m.z < z0 || m.z > z1) continue; const sx = W / 2 + (m.x - cx) * k, sy = H / 2 + (m.z - cz) * k; g.fillStyle = m.col || '#ffd966'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.arc(sx, sy, big ? 10 : 7, 0, 7); g.fill(); g.stroke(); g.font = (big ? 14 : 10) + 'px sans-serif'; g.fillStyle = '#000'; g.fillText(m.icon || '•', sx, sy + 1); }
     for (const p of this.items) {
       if (p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1) continue;
       const special = p.group === 'special' || p === this.track; if (!special && (!showAll || !this.groups.has(p.group))) continue;
@@ -174,7 +180,7 @@ export class PoiLayer {
       if (!arr.length) el('div', '', 'Нет точек', list);
       arr.forEach(({ poi, dist }) => {
         const r = el('div', 'row', '', list), tr = this.track === poi;
-        el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'} · ${poi.real ? 'реальный объект OSM' : 'игровая точка (по модели)'}${poi.key === 'sizo' ? ' · вул. Дегтярівська, 13' : ''}</small>`, r);
+        el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'} · ${poi.real ? 'реальный объект OSM' : 'игровая точка (по модели)'}${poi.key === 'sizo' ? ' · вул. Дегтярівська, 13' : ''}${JOBDEFS[poi.key] ? `<br>₴${JOBDEFS[poi.key].hourly}/ч · ${scheduleText(JOBDEFS[poi.key])}` : ''}</small>`, r);
         tap(el('span', 'btn g', tr ? 'снять' : 'метка', r), () => { this.setTrack(tr ? null : poi); draw(); });
         if (!this.ctx.noTeleport) tap(el('span', 'btn', 'ТП', r), () => { pn.close(); this.goto(poi); });
       });

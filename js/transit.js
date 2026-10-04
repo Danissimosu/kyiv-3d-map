@@ -97,7 +97,8 @@ export class Transit {
     try { const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Kyiv', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()), g = k => parts.find(p => p.type === k)?.value;
       wk = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(g('weekday')); T = (+g('hour')) * 3600 + (+g('minute')) * 60 + (+g('second')); } catch (e) { const d = new Date(); wk = (d.getDay() + 6) % 7; T = d.getHours() * 3600 + d.getMinutes() * 60; }
     if (qs.has('clock')) { const m = qs.get('clock').split(':'); T = (+m[0]) * 3600 + (+m[1] || 0) * 60; }
-    this.cT = T; this.wk = Math.max(0, wk); this.rate = parseFloat(qs.get('clockrate') || '1'); this.dayForce = qs.get('day'); this.last = performance.now();
+    if (ctx.clock) { wk = ctx.clock.wk; T = ctx.clock.t; }   // global game clock (60x); vehicles themselves move in real time, see update()
+    this.cT = T; this.wk = Math.max(0, wk); this.rate = qs.has('trate') ? parseFloat(qs.get('trate')) : (qs.get('clockrate') === '0' ? 0 : 1); this.dayForce = qs.get('day'); this.last = performance.now();
   }
   get busy() { return !!(this.ride || this.drive); }
   get day() { return this.dayForce === 'wd' || this.dayForce === 'we' ? this.dayForce : (this.wk >= 5 ? 'we' : 'wd'); }
@@ -105,7 +106,7 @@ export class Transit {
   async load(base) {
     if (this.disabled) return;
     let d; try { const r = await fetch(base + 'transit.json'); if (!r.ok) throw new Error(r.status); d = await r.json(); } catch (e) { console.warn('transit.json missing', e); return; }
-    this.stops = d.stops.map((s, i) => ({ i, x: s[0], z: s[1], name: s[3], routes: s[4], type: 3, face: 0, ty: 0, sx: s[0], sz: s[1], px: s[0], pz: s[1], pats: [] }));
+    this.stops = d.stops.map((s, i) => ({ i, x: s[0], z: s[1], name: s[3], routes: s[4], type: 3, face: 0, ty: 0, sx: s[0], sz: s[1], px: s[0], pz: s[1], pre: s.length >= 8 ? [s[5], s[6], s[7]] : null, pats: [] }));
     this.shapes = d.shapes.map(sh => { const p = sh.p, n = p.length / 2, x = new Float32Array(n), z = new Float32Array(n), cum = new Float32Array(n); let a = p[0], b = p[1]; x[0] = a / 10; z[0] = b / 10;
       for (let i = 1; i < n; i++) { a += p[2 * i]; b += p[2 * i + 1]; x[i] = a / 10; z[i] = b / 10; cum[i] = cum[i - 1] + Math.hypot(x[i] - x[i - 1], z[i] - z[i - 1]); } return { x, z, cum, n }; });
     const dc = a => { const o = new Uint16Array(a.length); let acc = 0; for (let i = 0; i < a.length; i++) { acc += a[i]; o[i] = acc; } return o; };
@@ -125,6 +126,7 @@ export class Transit {
       const sh = ref.pat.dir.sh, a = this._at(sh, ref.pat.s[ref.k]), b = this._at(sh, ref.pat.s[ref.k] + 4); let tx = b.x - a.x, tz = b.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
       let fx = a.x - st.x, fz = a.z - st.z; const cd = Math.hypot(fx, fz); if (cd < 0.6) { fx = tz; fz = -tx; } else { fx /= cd; fz /= cd; }
       const want = Math.max(cd, 5.4), px = st.x - fx * Math.max(0, want - cd) , pz = st.z - fz * Math.max(0, want - cd);
+      if (st.pre) { st.sx = st.pre[0]; st.sz = st.pre[1]; st.face = st.pre[2]; st.signYaw = Math.atan2(tx, tz); st.px = st.sx + tx * 2.7; st.pz = st.sz + tz * 2.7; st.rx = a.x; st.rz = a.z; continue; }   // kerb-side placement from tools/place_stops.py
       st.face = Math.atan2(fx, fz); st.sx = px; st.sz = pz; st.signYaw = Math.atan2(tx, tz); st.px = px + tx * 2.7; st.pz = pz + tz * 2.7; st.rx = a.x; st.rz = a.z;
     }
     this._buildGfx(); this._ui(); this.loaded = true;
@@ -245,6 +247,9 @@ export class Transit {
   update(P, dt) {
     if (!this.loaded) return;
     const now = performance.now(); this.cT += (now - this.last) / 1000 * this.rate; this.last = now;
+    const gc = this.ctx.clock;   // follow the game clock's weekday / time-of-day period (vehicles keep real-time speed: at 60x they would move at ~300 m/s)
+    if (gc && this.rate === 1 && ((this.rs = (this.rs || 0) + dt) > 2)) { this.rs = 0; let df = ((gc.t - this.cT) % 86400 + 86400) % 86400; if (df > 43200) df -= 86400;
+      if ((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > 6 * 3600) { this.cT = gc.t; this.wk = gc.wk; if (this.ride) this._exit(true); this.veh.clear(); this.t1 = 9; } }
     if (this.cT >= 86400) { this.cT -= 86400; this.wk = (this.wk + 1) % 7; if (this.ride) this._exit(true); this.veh.clear(); this.t1 = 9; }
     this.t1 += dt; if (this.t1 > (this.rate > 5 ? 0.25 : 1)) { this.t1 = 0; this.scan(); }
     this.t2 += dt; if (this.t2 > 0.4) { this.t2 = 0; this._updateStops(P); }
@@ -305,7 +310,7 @@ Object.assign(Transit.prototype, {
   },
   provider(P) {
     if (!this.loaded || UI.modal) return null;
-    if (this.drive) return { label: 'Завершить смену', run: () => this.stopDriving('quit') };
+    if (this.drive) return this.doorProvider();
     if (this.ride) { const v = this.ride.v; return v.doors ? { label: 'Выйти', run: () => this._exit() } : null; }
     if (this.game_busy()) return null;
     let best = null, bd = 4.2;
@@ -426,29 +431,44 @@ Object.assign(Transit.prototype, {
     const v = { key: 'drv', ro, dir, pat, t0: 0, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null, s: Math.max(0, pat.s[k] - 14), doors: false, moving: false, drv: true, dw: -1, seg: 0, tt: 0 };
     const o = this._pose(dir.sh, v.s, ro.t === 0 ? 0 : LAT, {}); Object.assign(v, { x: o.x, z: o.z, yaw: o.yaw }); this.drive = { v, ro, dir, pat, k, s: v.s, vel: 0, hold: 0, earned: 0, served: 0, poi, t: 0 };
     this.cur = v; this.ls = null; P.fly = false; P.yaw = v.yaw + Math.PI; P.pitch = 0; this.ctx.teleport(v.x, v.z); this.bSkip.style.display = 'none'; this.cInt = null;
-    toast(`${TICON[ro.t]} Маршрут ${ro.n} → ${dir.to}. W — газ, S — тормоз; на остановках автобус сам замедлится`, 5200); return true;
+    toast(`${TICON[ro.t]} Маршрут ${ro.n} → ${dir.to}. W — газ, S — тормоз. На каждой остановке встаньте в зоне и откройте двери (кнопка E); пропуск — штраф`, 5200); return true;
+  },
+  doorProvider() {   // "open doors" button: only when standing still in the stop zone
+    const d = this.drive; if (!d || d.hold > 0 || d.k >= d.pat.n - 1) return null; const dist = d.pat.s[d.k + 1] - d.s;
+    if (Math.abs(dist) < 9 && d.vel < 0.5) return { label: 'Открыть двери (остановка ' + this.stops[d.pat.si[d.k + 1]].name + ')', run: () => this._openDoors() };
+    return null;
+  },
+  _openDoors() {
+    const d = this.drive; if (!d || d.hold > 0 || d.k >= d.pat.n - 1) return; const dist = d.pat.s[d.k + 1] - d.s; if (Math.abs(dist) >= 9 || d.vel >= 0.5) { toast('Остановитесь в зоне остановки'); return; }
+    const j = this.jobs, prec = Math.abs(dist) < 3; d.hold = 4.5; d.vel = 0; d.k++; d.served++; if (j) j.addBonus(prec ? 14 : 6, prec ? 'Точная остановка' : 'Остановка');
+    toast(`🚏 ${this.stops[d.pat.si[d.k]].name}${prec ? ' · точно' : ''}`, 2200);
+  },
+  _nextTrip(d) {   // terminus reached: turn round (opposite direction) or restart the line
+    const ro = d.ro, dir = ro.dirs.length > 1 ? ro.dirs[(d.dir.idx + 1) % ro.dirs.length] : d.dir;
+    const pat = dir.pats.reduce((a, b) => (b.s[b.n - 1] - b.s[0] > a.s[a.n - 1] - a.s[0] ? b : a));
+    d.dir = dir; d.pat = pat; d.k = 0; d.s = pat.s[0]; d.vel = 0; d.v.dir = dir; d.v.pat = pat; toast(`Конечная. Разворот → ${dir.to}`, 3200);
   },
   _driveStep(P, dt) {
     const d = this.drive, v = d.v, K = this.ctx.keys, T = this.ctx.T, tram = d.ro.t === 0; d.t += dt;
     let thr = (K.KeyW || K.ArrowUp ? 1 : 0) - (K.KeyS || K.ArrowDown ? 1 : 0); if (this.ctx.IS_TOUCH && Math.abs(T.jy) > 0.15) thr = -T.jy;
-    const brake = K.Space || T.jump, vmax = tram ? 15 : 16.5, nextS = d.pat.s[d.k + 1], dist = nextS - d.s;
-    if (d.hold > 0) { d.hold -= dt; d.vel = 0; v.doors = true; if (d.hold <= 0) { v.doors = false; if (d.k >= d.pat.n - 1) { this.stopDriving('done'); return; } } }
+    const brake = K.Space || T.jump, vmax = tram ? 15 : 16.5; let nextS = d.pat.s[d.k + 1]; const dist = nextS - d.s;
+    if (d.hold > 0) { d.hold -= dt; d.vel = 0; v.doors = true; if (d.hold <= 0) { v.doors = false; if (d.k >= d.pat.n - 1) this._nextTrip(d); } }
     else {
       let a = thr > 0 ? (tram ? 2.0 : 2.4) * thr : thr < 0 ? 4.6 : -0.5; if (thr === 0 && d.vel < 0.3) { d.vel = 0; a = 0; }
-      let vm = vmax; if (dist < 90) vm = Math.min(vm, Math.sqrt(2 * 2.6 * Math.max(0, dist - 0.8)) + 0.05);   // approach assist: slows down to stop at the stop
+      let vm = vmax; if (dist < 90 && dist > -12 && thr <= 0) vm = Math.min(vm, Math.sqrt(2 * 2.6 * Math.max(0, dist - 0.8)) + 0.05);   // coasting: the approach assist brakes to the stop; holding the throttle overrides it
       d.vel += a * dt; if (brake) d.vel = Math.max(0, d.vel - 6 * dt); d.vel = Math.max(0, Math.min(d.vel, vm));
       d.s += d.vel * dt; const last = d.pat.s[d.pat.n - 1]; if (d.s > last) { d.s = last; d.vel = 0; }
-      if (dist < 6 && d.vel < 1.2) {   // served the stop
-        d.s = Math.max(d.s, nextS - 1.2); d.k++; d.hold = 5.5; d.vel = 0; d.served++; const pay = tram ? 70 : 60; d.earned += pay; this.ctx.game.earn(pay); toast(`🚏 ${this.stops[d.pat.si[d.k]].name} · +₴${pay}`, 2600);
-        if (d.k >= d.pat.n - 1) { const bonus = 200; d.earned += bonus; this.ctx.game.earn(bonus); toast(`🏁 Конечная! Бонус +₴${bonus}`, 3000); d.hold = 6; } else toast(`Следующая: ${this.stops[d.pat.si[d.k + 1]].name}`, 3000);
+      if (nextS !== undefined && d.k < d.pat.n - 1 && d.s > nextS + 12) {   // drove past the stop without opening the doors
+        d.skipped = (d.skipped || 0) + 1; if (this.jobs) this.jobs.addPen(40, 'Пропуск остановки'); d.k++;
+        if (d.k >= d.pat.n - 1) { d.hold = 2.5; }
       }
     }
     v.s = d.s; const o = this._pose(d.dir.sh, d.s, tram ? 0 : LAT, v.st); v.x = o.x; v.z = o.z; v.yaw = o.yaw; v.moving = d.vel > 0.2; this._groundY(v, dt); v.lyaw = null;
     this._seat(v, P, 0.55, (tram ? TL : BL) / 2 - 1.35, 1.1);
   },
   stopDriving(why, silent) {
-    const d = this.drive; if (!d) return; const P = this.P; this.drive = null; this.cur = null; this.ls = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = 'none'; const g = this.ctx.game;
-    if (why === 'done') { g.S.jobs = (g.S.jobs || 0) + 1; g.dirty = 1; toast(`✅ Смена окончена: заработано ₴${d.earned}, остановок: ${d.served}`, 4200); } else if (!silent) toast(`Смена прервана: заработано ₴${d.earned}`, 3200);
+    const d = this.drive; if (!d) return; const P = this.P; this.drive = null; this.cur = null; this.ls = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = 'none';
+    if (this.jobs) this.jobs.onDriveEnd(why);
     const pl = d.poi && d.poi.pl; if (pl && pl.tile && pl.tile.alive && why !== 'abort') this.ctx.gotoDoor(pl, 4.5); else if (why !== 'abort') this.ctx.teleport(d.poi.x + 12, d.poi.z + 12);
     else { const gy = this.world.heightAt(d.v.x, d.v.z); P.y = gy + 0.1; P.eye = P.y + 1.7; }
   },

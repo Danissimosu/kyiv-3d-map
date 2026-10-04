@@ -187,9 +187,9 @@ export class Crime {
     this.heat = 0; this._clearCops();
   }
   // ---------------------------------------------------------------- car theft / driving
-  enterCar(c) {
-    const g = this.game; if (this.driving) return; const wasParked = c.parked, wit = this.witnessed(35);
-    this.addHeat(wasParked ? (g.count('crowbar') ? 0.15 : (wit ? 1.1 : 0.45)) : 1.6, wasParked ? 'угон' : 'угон с водителем');
+  enterCar(c, legit) {
+    const g = this.game; if (this.driving) return; const wasParked = c.parked, wit = legit ? 0 : this.witnessed(35);
+    if (!legit) this.addHeat(wasParked ? (g.count('crowbar') ? 0.15 : (wit ? 1.1 : 0.45)) : 1.6, wasParked ? 'угон' : 'угон с водителем');
     c.player = true; c.parked = false; c.vel = c.speed || 0; c.speed = 0; c.tilt = 0; this.driving = c; this.steer = 0; const P = this.P; P.fly = false;
     P.x = c.x; P.z = c.z; P.vx = P.vz = 0; toast('🚗 W/S — газ/тормоз · A/D — руль · Пробел — ручник · E — выйти'); this.ctx.setDriving && this.ctx.setDriving(true);
   }

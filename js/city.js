@@ -242,7 +242,7 @@ export class City {
     let km = 0; const T = this.world.TILE; const R = this.carR;
     for (let i = Math.floor((P.x - R) / T); i <= Math.floor((P.x + R) / T); i++) for (let j = Math.floor((P.z - R) / T); j <= Math.floor((P.z + R) / T); j++) { const l = this.tilePaths.get(i + '_' + j); if (l) for (const p of l) if (p.cls >= 1 && !p.bridge) km += p.len / 1000 * CLS_DENS[p.cls] * 0.25; }
     const wantCar = Math.min(this.capCar, Math.round(km * Math.min(1, 0.4 + pop / 800)));
-    for (const c of this.cars) if (!c.player && Math.hypot(c.x - P.x, c.z - P.z) > R + 30) c.dead = true;
+    for (const c of this.cars) if (!c.player && !c.job && Math.hypot(c.x - P.x, c.z - P.z) > R + 30) c.dead = true;
     this.cars = this.cars.filter(c => !c.dead);
     const moving = this.cars.filter(c => !c.parked && !c.player).length; tries = 0;
     while (moving + tries < wantCar && tries++ < 3) this._spawnCar(P, false);

@@ -169,6 +169,22 @@ function kitBuild(key) {
     for (const s of [-1, 1]) { part(0.34, 4.3, 0.34, s * 2.95, 0, 0.18, [0.06, 0.22, 0.14]); part(0.6, 0.4, 0.5, s * 2.3, 0, 1.6, [0.82, 0.83, 0.85], -1, [0, s * 0.3, 0]); part(0.56, 0.32, 0.5, s * 2.3, 0.4, 1.6, [0.75, 0.76, 0.78], -1, [0, s * 0.3, 0]); part(0.52, 0.05, 0.05, s * 2.3, 0.55, 1.4, [0.8, 0.1, 0.1], -1, [0, s * 0.3, 0]); }
     part(5.8, 0.12, 1.6, 0, 2.55, 0.8, R, 3); part(5.8, 0.24, 0.05, 0, 2.38, 1.6, R, 4); part(6.0, 0.34, 0.1, 0, 3.7, 0.06, R, 4);
     part(5.6, 0.2, 0.06, 0, 4.05, 0.04, [0.06, 0.22, 0.14]);
+    // cart corral, pylon sign and painted parking bays in front of the store
+    for (let k = 0; k < 3; k++) part(0.6, 0.85, 0.9, -3.6 + k * 0.1, 0, 2.2 + k * 0.05, [0.72, 0.74, 0.76]); part(1.8, 0.05, 1.3, -3.6, 0.85, 2.2, [0.2, 0.22, 0.24]);
+    part(0.55, 5.4, 0.45, 6.6, 0, 5.2, [0.06, 0.22, 0.14]); part(1.8, 1.3, 0.5, 6.6, 5.4, 5.2, R, 3);
+    for (let k = -3; k <= 3; k++) part(0.12, 0.02, 4.8, k * 2.6, 0.02, 9.5, [0.95, 0.95, 0.95]);
+  } else if (key === 'atb') {
+    const BL = [0.13, 0.4, 0.78];
+    part(5.8, 1.1, 0.07, 0, 2.55, 0.035, BL); part(5.8, 0.18, 0.1, 0, 3.7, 0.05, [0.95, 0.5, 0.1]); part(5.8, 0.12, 1.5, 0, 2.5, 0.75, BL); part(5.8, 0.2, 0.05, 0, 2.3, 1.5, [0.95, 0.5, 0.1]);
+    for (const s of [-1, 1]) part(0.3, 3.9, 0.3, s * 2.95, 0, 0.18, [0.1, 0.18, 0.3]);
+    for (let k = 0; k < 3; k++) part(0.6, 0.85, 0.9, -3.8 + k * 0.1, 0, 2.2 + k * 0.05, [0.72, 0.74, 0.76]); part(1.8, 0.05, 1.3, -3.8, 0.85, 2.2, [0.2, 0.22, 0.24]);
+    part(0.55, 5.2, 0.45, 6.4, 0, 5.2, [0.1, 0.18, 0.3]); part(1.8, 1.3, 0.5, 6.4, 5.2, 5.2, BL);
+    for (let k = -3; k <= 3; k++) part(0.12, 0.02, 4.8, k * 2.6, 0.02, 9.5, [0.95, 0.95, 0.95]);
+  } else if (key === 'sushi') {
+    const RD = [0.77, 0.08, 0.24], DK = [0.14, 0.12, 0.12];
+    part(4.8, 0.14, 1.2, 0, 2.55, 0.6, RD); part(4.8, 0.26, 0.06, 0, 2.29, 1.2, DK); for (const s of [-1, 1]) part(0.1, 2.5, 0.1, s * 2.3, 0, 1.15, DK);
+    for (let k = 0; k < 3; k++) { part(0.34, 0.48, 0.34, -1.1 + k * 1.1, 2.02, 0.7, [0.96, 0.9, 0.78]); part(0.38, 0.04, 0.38, -1.1 + k * 1.1, 2.5, 0.7, RD); }
+    part(1.0, 0.5, 0.5, 3.1, 0, 0.5, [0.35, 0.25, 0.16]); part(1.0, 0.4, 0.4, -3.1, 0, 0.5, [0.2, 0.45, 0.2]);
   } else if (key === 'epicentr') {
     part(6.6, 1.1, 0.07, 0, 0, 0.035, R, 6); part(6.6, 1.5, 0.06, 0, 2.5, 0.03, R, 5); part(6.6, 0.12, 0.08, 0, 2.4, 0.06, R, 6);
     part(4.2, 0.14, 1.7, 0, 2.5, 0.85, R, 6); for (const s of [-1, 1]) part(0.16, 2.5, 0.16, s * 2.0, 0, 1.6, DG);
@@ -192,7 +208,7 @@ function kitBuild(key) {
   }
   return B.build();
 }
-export const KIT_FOR = { mcd: 'mcd', puzata: 'puzata', silpo: 'silpo', epicentr: 'epicentr', dvornik: 'office', kurier: 'office', taxi: 'office', gruzchik: 'depot', bus: 'depot', tram: 'depot' };
+export const KIT_FOR = { mcd: 'mcd', puzata: 'puzata', silpo: 'silpo', atb: 'atb', sushi: 'sushi', epicentr: 'epicentr', dvornik: 'office', kurier: 'office', taxi: 'office', gruzchik: 'depot', bus: 'depot', tram: 'depot' };
 export const POSTER_FOR = { mcd: 0, puzata: 2, silpo: 4, epicentr: 6, dvornik: 8, kurier: 8, taxi: 8, gruzchik: 10, bus: 10, tram: 10 };   // exterior picture cell in posters.jpg (4x3)
 
 export class FacadeKits {
@@ -218,8 +234,8 @@ export class FacadeKits {
     const kit = this.kits[KIT_FOR[key]]; if (!kit || kit.count >= this.cap) return;
     this._q.setFromAxisAngle(this._up, Math.atan2(d.nx, d.nz)); this._p.set(d.mx, y0, d.mz); this._m.compose(this._p, this._q, this._s); kit.setMatrixAt(kit.count++, this._m);
     if (this.nb < this.cap * 8 - 1) {
-      const cell = POSTER_FOR[key], side = key === 'puzata' ? -1 : 1, ox = KIT_FOR[key] === 'depot' ? 0 : side * 2.15;
-      if (KIT_FOR[key] === 'depot') return;   // the warehouse front is all docks: no board
+      const cell = POSTER_FOR[key] || 0, side = key === 'puzata' ? -1 : 1, ox = KIT_FOR[key] === 'depot' ? 0 : side * 2.15;
+      if (KIT_FOR[key] === 'depot' || key === 'atb' || key === 'sushi') return;   // the warehouse front is all docks / no reference picture for atb, sushi
       this._p.set(d.mx + d.nz * ox, y0, d.mz - d.nx * ox); this._m.compose(this._p, this._q, this._s);
       this.board.setMatrixAt(this.nb, this._m); this.frame.setMatrixAt(this.nb, this._m);
       this.board.geometry.attributes.aCell.setXY(this.nb, (cell % 4) * 0.25, 1 - ((cell >> 2) + 1) * 170 / 512); this.nb++;

@@ -4,6 +4,7 @@
 //    U-shaped staircase, railings; all in ONE atlas material (no lights; baked vertex shading). Disposed when far.
 import * as THREE from 'three';
 import { makeInteriorAtlas, INT_RECT } from './textures.js';
+const SHOP_THEMES = new Set(['sushi', 'market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr']);
 import { STYLE, classify, assignTypes, furnish } from './rooms.js';
 
 export const DOOR_W = 1.6, DOOR_H = 2.3, WALL_T = 0.3, SLAB = 0.25;
@@ -317,7 +318,9 @@ export class InteriorManager {
     if (pieces.length && !flood(pieces)) { pieces.length = 0; I.partitionsDropped = true; }
     I.pieces = pieces;
     // ---- rooms: BSP leaves (a single open room when the partitions were dropped / not generated)
-    let rooms = leaves; if (!pieces.length || !lines.length) rooms = [{ u0: minU, v0: minV, u1: maxU, v1: maxV }];
+    const hall = !!(p.poi && SHOP_THEMES.has(p.poi.theme));   // shops / food: one big sales hall, no partition rooms
+    if (hall) pieces.length = 0;
+    let rooms = leaves; if (!pieces.length || !lines.length || hall) rooms = [{ u0: minU, v0: minV, u1: maxU, v1: maxV }];
     const uvOf = (x, z) => [x * ux + z * uz, x * vx + z * vz];
     const leafAt = (x, z) => { const [u, v] = uvOf(x, z); let bi = 0, bd = 1e9; for (let i = 0; i < rooms.length; i++) { const r = rooms[i], du = Math.max(r.u0 - u, 0, u - r.u1), dv = Math.max(r.v0 - v, 0, v - r.v1), d = du * du + dv * dv; if (d < bd) { bd = d; bi = i; } } return bi; };
     for (const r of rooms) { let a = 0; for (let u = r.u0 + 0.5; u < r.u1; u += 1) for (let v = r.v0 + 0.5; v < r.v1; v += 1) { const q = toXZ(u, v); if (inside(q[0], q[1])) a++; } r.area = a; r.door = false; r.stair = false; }

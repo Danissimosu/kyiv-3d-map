@@ -3,6 +3,8 @@ import { PoiLayer } from './pois.js';
 import { Game } from './game.js';
 import { Crime } from './crime.js';
 import { Transit } from './transit.js';
+import { GameClock } from './clock.js';
+import { Jobs } from './jobs.js';
 import { UI } from './ui.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
@@ -71,12 +73,23 @@ async function main() {
   scene.fog = new THREE.FogExp2(fogCol, parseFloat(qs.get('fog') || (MOB ? '0.0015' : '0.00095')));
   { const pm = new THREE.PMREMGenerator(renderer); const es = new THREE.Scene(); const s2 = new Sky(); s2.scale.setScalar(1000); Object.keys(su).forEach(k => { s2.material.uniforms[k].value = su[k].value.clone ? su[k].value.clone() : su[k].value; }); es.add(s2);
     scene.environment = pm.fromScene(es, 0, 1, 2000).texture; scene.environmentIntensity = 0.6; pm.dispose(); }
-  scene.add(new THREE.HemisphereLight(0xcfe2ff, 0x77735e, 0.6));
+  const hemi = new THREE.HemisphereLight(0xcfe2ff, 0x77735e, 0.6); scene.add(hemi);
+  const clock = new GameClock(qs); const DAYCYCLE = !qs.has('sun') && !qs.has('az');
   const sun = new THREE.DirectionalLight(0xffeccc, 3.3);
   const SMAP = 2048; sun.castShadow = shadows; sun.shadow.mapSize.set(SMAP, SMAP);
   let SC = MOB ? 75 : 120; Object.assign(sun.shadow.camera, { left: -SC, right: SC, top: SC, bottom: -SC, near: 1, far: 700 });
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.35; sun.shadow.radius = 3.2;
   scene.add(sun, sun.target);
+  // day / night follows the global game clock (unless ?sun / ?az pin the sun)
+  const dayCol = new THREE.Color(0xc4d7ea), nightCol = new THREE.Color(0x090e1c), dawnCol = new THREE.Color(0xffb060), sunWhite = new THREE.Color(0xffeccc); let skyT = 99;
+  function applySky() {
+    if (!DAYCYCLE) return;
+    const e = clock.sunElev(), az = THREE.MathUtils.degToRad(clock.sunAz()), f = THREE.MathUtils.clamp((e + 2) / 14, 0, 1);
+    su.sunPosition.value.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - e), az);
+    sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - Math.max(e, 8)), az);   // shadows never flip below the horizon
+    sun.intensity = 3.3 * f; sun.color.copy(dawnCol).lerp(sunWhite, THREE.MathUtils.clamp(e / 22, 0, 1)); hemi.intensity = 0.1 + 0.5 * f; scene.environmentIntensity = 0.08 + 0.52 * f;
+    fogCol.copy(nightCol).lerp(dayCol, f); scene.fog.color.copy(fogCol); renderer.toneMappingExposure = 0.45 + 0.23 * f;
+  }
 
   const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { base: BASE, shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
   const city = new City(world, scene, manifest, { mobile: MOB }); city.enabled = qs.get('city') !== '0'; city.setLevel(qLevel);
@@ -107,13 +120,15 @@ async function main() {
   const pois = new PoiLayer(world, scene, { P, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d), noTeleport: false,
     landmarks: LANDMARKS.map(l => ({ name: l[0], go: () => { const [x, z] = lmXZ(l); teleport(x, z); } })) });
   await pois.load(BASE);
-  const game = new Game({ P, world, scene, pois, qs, IS_TOUCH, START, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), paintMap: (...a) => paintMap(...a) });
+  const game = new Game({ P, world, scene, pois, qs, clock, IS_TOUCH, START, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), paintMap: (...a) => paintMap(...a) });
   const crime = new Crime({ P, world, scene, city, pois, game, qs, IS_TOUCH, canvas, keys, T, START, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
-  const transit = new Transit(world, scene, { P, IS_TOUCH, qs, game, pois, keys, T, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
+  const transit = new Transit(world, scene, { P, IS_TOUCH, qs, clock, game, pois, keys, T, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
   try { await transit.load(BASE); } catch (e) { console.warn('transit load failed', e); } pois.transit = transit;
+  const jobs = new Jobs({ P, world, scene, pois, city, clock, game, crime, transit, qs, keys, T, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
   UI.onModal = n => { if (!n && !IS_TOUCH && started && !game.dead) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} };
 
   let manualShadow = manualShadow0;
+  applySky();
   function setShadows(on) { if (sun.castShadow === on) return; sun.castShadow = on; scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); $('bShade').classList.toggle('on', on); }
   function toggleShadows() { manualShadow = true; setShadows(!sun.castShadow); }
   const gov = { t: 0, n: 0, good: 0, lastChange: performance.now(), start: performance.now(), fps: 60 };
@@ -259,7 +274,7 @@ async function main() {
   function physics(dt) {
     const k = keys; const f = Math.max(-1, Math.min(1, (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) - T.jy)), s = Math.max(-1, Math.min(1, (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + T.jx));
     const run = k.ShiftLeft || k.ShiftRight || T.run; const jumpKey = k.Space || T.jump, downKey = k.ControlLeft || k.KeyC || T.down;
-    let sp = P.fly ? (run ? FLYFAST : FLY) : (run ? RUN : WALK); if (!P.fly && P.inWater) sp *= 0.45;
+    let sp = P.fly ? (run ? FLYFAST : FLY) : (run ? RUN : WALK); if (!P.fly && P.inWater) sp *= 0.45; if (P.slow && !P.fly) sp *= P.slow;
     let wx = 0, wz = 0;
     if (P.fly) { const cp = Math.cos(P.pitch); fwd.set(-Math.sin(P.yaw) * cp, Math.sin(P.pitch), -Math.cos(P.yaw) * cp); wx = fwd.x * f + Math.cos(P.yaw) * s; wz = fwd.z * f - Math.sin(P.yaw) * s; }
     else { wx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s; wz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s; }
@@ -296,7 +311,7 @@ async function main() {
     governor(raw); frames++; tacc += raw; if (tacc > 0.5) { fps = frames / tacc; frames = 0; tacc = 0; updateHud(); }
     const before = world.tiles.size;
     if (spawned) world.update(P, dt, MOB ? 3 : 6);
-    if (spawned) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); }
+    if (spawned) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); jobs.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
       const sx = SPX, sz = SPZ;
@@ -345,7 +360,7 @@ async function main() {
       тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}<br>${transit.hudLine()}`;
     $('hudtxt').innerHTML = IS_TOUCH && !hudOpen ? `${fps.toFixed(0)} fps · Q${qLevel}` : full;
   }
-  window.__kyiv = { city, pois, game, crime, transit, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
+  window.__kyiv = { city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; } };
   requestAnimationFrame(frame);
 }
 main().catch(e => { console.error(e); const m = document.getElementById('msg'); if (m) m.textContent = 'Ошибка: ' + e.message; });

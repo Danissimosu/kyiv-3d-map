@@ -297,7 +297,7 @@ diffuseColor.rgb *= col * 1.25;`);
     // ---- interior planning: door on the street-facing wall (nearest road), inner wall offset, levels
     const roadSegs = []; for (const r of roadsRaw) { if (r.b || typeof r.c !== 'number' || r.c < 1) continue; const p = r.p; for (let i = 0; i + 3 < p.length; i += 2) roadSegs.push(p[i], p[i + 1], p[i + 2], p[i + 3]); }
     const others = list.map(b => { const r = orientRing(b.p, true); let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let i = 0; i < r.length; i += 2) { x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]); z0 = Math.min(z0, r[i + 1]); z1 = Math.max(z1, r[i + 1]); } return { b: [x0, z0, x1, z1], ring: r }; });
-    const pm = this.poiMap && this.poiMap.get(key); if (pm) for (const [pbi, poi] of pm) { const bb = list[pbi]; if (bb && poi.brand !== undefined) bb.c = poi.brand; }
+    const pm = this.poiMap && this.poiMap.get(key); if (pm) for (const [pbi, poi] of pm) { const bb = list[pbi]; if (bb && poi.brand !== undefined) { bb.c = poi.brand; if (poi.cat.svc === 'shop') bb.pshop = 1; } }
     const planOf = new Map(); const SKIPK = /^(roof|carport|constructio|ruins|bunker|greenhouse|cabin|hut|kiosk|toilets|static_cara|container|silo|tank|tower|chimney|bridge)/;
     for (let bi = 0; bi < list.length; bi++) {
       const b = list[bi]; if (b.m || SKIPK.test(b.k || '')) continue;
@@ -334,7 +334,12 @@ diffuseColor.rgb *= col * 1.25;`);
       const ref = mh ? g + mh : g;
       const levels = Math.max(1, b.f), fh = Math.max(2.4, (eave - ref) / levels);
       const bands = [];
-      if (useGF) {
+      if (b.pshop && !mh) {   // POI shop / fast food: tall storefront glass on the ground floor + a strongly brand-coloured fascia band above (readable from the street)
+        const sf = Math.max(1.8, Math.min(3.6, eave - g - 1.3));
+        bands.push({ y0: bottom, y1: g + sf, st: (hash(seed + 5) < 0.6 ? 8 : 9), v0: 0, v1: 1, tint: [1, 1, 1] });
+        const k2 = 0.9, bc = new THREE.Color(b.c), bt = [1 - k2 + k2 * bc.r * 1.45, 1 - k2 + k2 * bc.g * 1.45, 1 - k2 + k2 * bc.b * 1.45].map(v => Math.min(1.25, v) * tj);
+        bands.push({ y0: g + sf, y1: eave, st: b.s, v0: 0, v1: (eave - g - sf) / fh, tint: bt });
+      } else if (useGF) {
         bands.push({ y0: bottom, y1: g + GF_H, st: (hash(seed + 5) < 0.6 ? 8 : 9), v0: 0, v1: 1, tint: [1, 1, 1] });
         bands.push({ y0: g + GF_H, y1: eave, st: b.s, v0: 0, v1: (eave - g - GF_H) / fh, tint: wcol });
       } else bands.push({ y0: bottom, y1: eave, st: b.s, v0: (bottom - ref) / fh, v1: (eave - ref) / fh, tint: wcol });
@@ -349,7 +354,7 @@ diffuseColor.rgb *= col * 1.25;`);
           const strip = (bd, fa, fb, ya, yb) => {
             if (yb - ya < 0.02 || fb - fa < 1e-4) return;
             const B = W[bd.st], c = bd.tint, k = (bd.v1 - bd.v0) / (bd.y1 - bd.y0);
-            const x0 = ax + dx * fa, z0 = az + dz * fa, x1 = ax + dx * fb, z1 = az + dz * fb, ua = u1 * fa, ub = u1 * fb;
+            const x0 = ax + dx * fa, z0 = az + dz * fa, x1 = ax + dx * fb, z1 = az + dz * fb, ua = -u1 * fa, ub = -u1 * fb;   // u runs along the wall edge = right-to-left for a viewer outside: negate so lettering (МАГАЗИН · КАФЕ) reads correctly
             const segs = []; let y = ya;     // baked ambient occlusion: dark at the ground, darker under the cornice
             if (bd === bands[0] && ya <= bd.y0 + 0.01) { const ym = Math.min(yb, ya + 3.2); segs.push([ya, ym, 0.64, 1]); y = ym; }
             if (y < yb) { if (bd === bands[bands.length - 1] && yb >= bd.y1 - 0.01 && yb - y > 1.2) { const ym = yb - 0.9; segs.push([y, ym, 1, 1], [ym, yb, 1, 0.82]); } else segs.push([y, yb, 1, 1]); }
