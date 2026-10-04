@@ -41,10 +41,18 @@ function win(ctx, x, y, w, h, o = {}) {
   emRect(x + fw, y + fw, w - 2 * fw, h - 2 * fw);
   ctx.fillStyle = frame;
   if (o.cross !== false) { ctx.fillRect(x + w / 2 - fw / 2, y, fw, h); emClear(x + w / 2 - fw / 2, y, fw, h); if (h > w * 1.2) { ctx.fillRect(x, y + h * 0.33, w, fw); emClear(x, y + h * 0.33, w, fw); } }
+  // recess: shadow of the reveal on top/left, brighter sky reflection in the upper pane, curtains / blinds
+  { const gx = x + fw, gy = y + fw, gw = w - 2 * fw, gh = h - 2 * fw; ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.fillRect(gx, gy, gw, Math.max(3, gh * 0.07)); ctx.fillRect(gx, gy, Math.max(3, gw * 0.05), gh);
+    const sk = ctx.createLinearGradient(0, gy, 0, gy + gh * 0.55); sk.addColorStop(0, 'rgba(190,215,235,0.30)'); sk.addColorStop(1, 'rgba(190,215,235,0)'); ctx.fillStyle = sk; ctx.fillRect(gx, gy, gw, gh * 0.55);
+    const r = ((x * 73856093) ^ (y * 19349663)) >>> 0, q = (r % 100) / 100;
+    if (o.curt !== false && q < 0.4) { ctx.fillStyle = ['rgba(236,226,200,0.78)', 'rgba(205,150,140,0.72)', 'rgba(150,175,150,0.7)', 'rgba(225,225,235,0.8)'][r % 4]; const cw = gw * (q < 0.2 ? 0.34 : 0.5); ctx.fillRect(gx, gy, cw, gh * (0.55 + q)); if (q < 0.2) ctx.fillRect(gx + gw - cw, gy, cw, gh * (0.55 + q)); }
+    else if (o.curt !== false && q < 0.55) { ctx.fillStyle = 'rgba(225,222,212,0.8)'; ctx.fillRect(gx, gy, gw, gh * 0.45); ctx.fillStyle = 'rgba(0,0,0,0.18)'; for (let yy = gy + 3; yy < gy + gh * 0.45; yy += 5) ctx.fillRect(gx, yy, gw, 1); } }
   // reflection glint
   ctx.fillStyle = 'rgba(255,255,255,0.10)';
   ctx.beginPath(); ctx.moveTo(x + fw, y + h - fw); ctx.lineTo(x + w * 0.55, y + fw); ctx.lineTo(x + w * 0.8, y + fw); ctx.lineTo(x + fw + w * 0.2, y + h - fw); ctx.fill();
-  if (o.sill) { ctx.fillStyle = o.sill; ctx.fillRect(x - 5, y + h, w + 10, 7); ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x - 5, y + h + 7, w + 10, 3); }
+  if (o.sill) { ctx.fillStyle = o.sill; ctx.fillRect(x - 5, y + h, w + 10, 7); ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x - 5, y + h + 7, w + 10, 3);
+    const dg = ctx.createLinearGradient(0, y + h + 10, 0, y + h + 46); dg.addColorStop(0, 'rgba(50,40,30,0.20)'); dg.addColorStop(1, 'rgba(50,40,30,0)'); ctx.fillStyle = dg; ctx.fillRect(x + 2, y + h + 10, w - 4, 36); }
+  if (o.ac && ((x * 31 + y * 17) % 3) === 0) { const ax = x + w * 0.6, ay = y + h + 12; ctx.fillStyle = '#d8d9d6'; ctx.fillRect(ax, ay, 34, 22); ctx.fillStyle = '#9a9c9a'; ctx.fillRect(ax + 4, ay + 5, 18, 12); ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(ax, ay + 22, 34, 3); }
   if (o.arch) { ctx.fillStyle = o.sill || '#e8e2d2'; ctx.fillRect(x - 8, y - 12, w + 16, 12); }
 }
 function bricks(ctx, w, h, base, bw, bh, seed, vary = 28, mortar = 'rgba(210,205,195,0.9)') {
@@ -64,16 +72,17 @@ const FACADES = {
   0() { const [c, x] = mk(512, 256); bricks(x, 512, 256, 'rgb(212,184,128)', 22, 8, 11, 20, 'rgba(225,215,190,0.85)');
     x.fillStyle = 'rgba(240,232,214,0.95)'; x.fillRect(0, 0, 512, 14); x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(0, 14, 512, 4);
     for (const cx of [128, 384]) win(x, cx - 38, 40, 76, 150, { frame: '#f4f0e4', sill: '#efe9d8', arch: true, surround: '#e9dfc4', sw: 8 });
+    x.fillStyle = '#d9cba8'; for (const cx of [128, 384]) { x.beginPath(); x.moveTo(cx - 9, 24); x.lineTo(cx + 9, 24); x.lineTo(cx + 6, 40); x.lineTo(cx - 6, 40); x.fill(); } x.fillStyle = 'rgba(120,95,60,0.35)'; for (let i = 4; i < 512; i += 12) x.fillRect(i, 18, 6, 7);
     x.fillStyle = '#e9dfc4'; x.fillRect(0, 248, 512, 8); streaks(x, 512, 256, 3); grain(x, 512, 256, 14, 5); return c; },
   // 1: red brick
   1() { const [c, x] = mk(512, 256); bricks(x, 512, 256, 'rgb(158,78,58)', 22, 8, 21, 44);
-    for (const cx of [128, 384]) win(x, cx - 46, 56, 92, 120, { frame: '#efece4', sill: '#cfc9bc' });
+    for (const cx of [128, 384]) win(x, cx - 46, 56, 92, 120, { frame: '#efece4', sill: '#cfc9bc', ac: true });
     x.fillStyle = 'rgba(0,0,0,0.12)'; x.fillRect(0, 250, 512, 6); streaks(x, 512, 256, 4); grain(x, 512, 256, 12, 7); return c; },
   // 2: Soviet panel
   2() { const [c, x] = mk(512, 256); x.fillStyle = '#c4c0b4'; x.fillRect(0, 0, 512, 256);
     x.fillStyle = 'rgba(80,80,75,0.55)'; x.fillRect(0, 252, 512, 4); x.fillRect(0, 0, 3, 256); x.fillRect(255, 0, 3, 256);
     x.fillStyle = 'rgba(255,255,255,0.12)'; x.fillRect(0, 0, 512, 6);
-    win(x, 66, 70, 124, 112, { frame: '#e9e6dc', sill: '#aaa69a' });
+    win(x, 66, 70, 124, 112, { frame: '#e9e6dc', sill: '#aaa69a', ac: true });
     // loggia
     x.fillStyle = '#6c6a63'; x.fillRect(310, 52, 148, 160); x.fillStyle = '#8f98a0'; x.fillRect(322, 64, 124, 80);
     emRect(322, 64, 124, 80); x.fillStyle = '#d9d6cc'; x.fillRect(310, 150, 148, 62); x.fillStyle = '#9a978d'; for (let i = 0; i < 12; i++) x.fillRect(316 + i * 12, 154, 3, 50);
@@ -83,6 +92,7 @@ const FACADES = {
   3() { const [c, x] = mk(512, 256); x.fillStyle = '#e2cf9f'; x.fillRect(0, 0, 512, 256);
     x.fillStyle = 'rgba(255,255,240,0.5)'; x.fillRect(0, 0, 512, 10); x.fillStyle = 'rgba(120,90,50,0.22)'; x.fillRect(0, 10, 512, 5);
     for (const cx of [128, 384]) win(x, cx - 40, 42, 80, 152, { frame: '#f6f3ea', surround: '#f2e8cf', sw: 12, sill: '#f6f0dc', arch: true });
+    x.fillStyle = 'rgba(255,250,235,0.55)'; for (const px of [0, 250]) x.fillRect(px, 15, 12, 241); x.fillStyle = 'rgba(100,80,50,0.25)'; for (const px of [12, 262]) x.fillRect(px, 15, 3, 241);
     streaks(x, 512, 256, 6, 16, 'rgba(70,50,20,0.12)'); grain(x, 512, 256, 16, 13); return c; },
   // 4: modern glass curtain wall
   4() { const [c, x] = mk(512, 256);
@@ -108,7 +118,7 @@ const FACADES = {
     streaks(x, 512, 256, 9, 20, 'rgba(60,50,40,0.18)'); grain(x, 512, 256, 18, 19); return c; },
   // 7: low-rise pastel plaster
   7() { const pal = ['#e7dcc2', '#e8d9a2', '#d8e0c8', '#e6cfc4', '#d9e1e8']; const [c, x] = mk(512, 256); x.fillStyle = pal[(Math.random() * 0) | 0]; x.fillRect(0, 0, 512, 256);
-    for (const cx of [128, 384]) { win(x, cx - 38, 62, 76, 100, { frame: '#faf7f0', sill: '#ddd6c6' }); x.fillStyle = '#6e8f6a'; x.fillRect(cx - 38 - 22, 62, 18, 100); x.fillRect(cx + 38 + 4, 62, 18, 100); }
+    for (const cx of [128, 384]) { win(x, cx - 38, 62, 76, 100, { frame: '#faf7f0', sill: '#ddd6c6', ac: true }); x.fillStyle = '#6e8f6a'; x.fillRect(cx - 38 - 22, 62, 18, 100); x.fillRect(cx + 38 + 4, 62, 18, 100); }
     x.fillStyle = 'rgba(0,0,0,0.12)'; x.fillRect(0, 250, 512, 6); streaks(x, 512, 256, 10, 14, 'rgba(60,50,30,0.12)'); grain(x, 512, 256, 14, 23); return c; },
   // 8: shop front (ground floor)
   8() { const [c, x] = mk(512, 256); x.fillStyle = '#4a4a4c'; x.fillRect(0, 0, 512, 256);

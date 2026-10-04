@@ -441,7 +441,7 @@ diffuseColor.rgb *= col * 1.25;`);
         let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let i = 0; i < n; i++) { x0 = Math.min(x0, ring[2 * i]); x1 = Math.max(x1, ring[2 * i]); z0 = Math.min(z0, ring[2 * i + 1]); z1 = Math.max(z1, ring[2 * i + 1]); }
         this._addCollider(key, 'roofs', { ring, holes: holes.length ? holes : null, b: [x0, z0, x1, z1], top: eave, tile: key }, x0, z0, x1, z1);
       }
-      if (!mh) { try { this._addDetails(DT, { ring, holes, g, eave, ref, fh, levels, useGF, flatRoof, seed, kind: b.k || '', doorEdge: planOf.has(bi) ? planOf.get(bi).door.edge : -1, key, bottom, style: b.s }); } catch (e) { console.warn('detail', e); } }
+      if (!mh) { try { this._addDetails(DT, { ring, holes, g, eave, ref, fh, levels, useGF, flatRoof, rh, rs, seed, kind: b.k || '', doorEdge: planOf.has(bi) ? planOf.get(bi).door.edge : -1, key, bottom, style: b.s }); } catch (e) { console.warn('detail', e); } }
     }
     const add2 = (B, mat, cast = true) => { if (B.empty) return; const m = add(B.build(), mat, { cast: cast && this.shadows }); this.stats.tris += B.i.length / 3; };
     W.forEach((B, i) => add2(B, this.facadeMat[i])); add2(R0, this.roofMat[0]); add2(R1, this.roofMat[1]);
@@ -500,6 +500,14 @@ diffuseColor.rgb *= col * 1.25;`);
             total++;
           } } }
     }
+    const pbox = (cx, cz, w, d, y0, y1, c) => { const cs = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]];
+      for (let e = 0; e < 4; e++) { const a = cs[e], b = cs[(e + 1) % 4], l = Math.hypot(b[0] - a[0], b[1] - a[1]), nx = (b[1] - a[1]) / l, nz = -(b[0] - a[0]) / l;
+        quad([cx + a[0], y0, cz + a[1]], [cx + b[0], y0, cz + b[1]], [cx + b[0], y1, cz + b[1]], [cx + a[0], y1, cz + a[1]], [nx, 0, nz], c.map(v => v * (0.78 + 0.22 * Math.abs(nx)))); }
+      quad([cx + cs[0][0], y1, cz + cs[0][1]], [cx + cs[1][0], y1, cz + cs[1][1]], [cx + cs[2][0], y1, cz + cs[2][1]], [cx + cs[3][0], y1, cz + cs[3][1]], [0, 1, 0], c.map(v => v * 1.1)); };
+    if (!flatRoof && o.rh > 0.8 && hash(seed + 41) < 0.4) {   // chimney on pitched / hip roofs (stack on the ridge / apex)
+      let cx = 0, cz = 0; for (let i = 0; i < n; i++) { cx += ring[2 * i]; cz += ring[2 * i + 1]; } cx /= n; cz /= n;
+      if (pip(ring, cx, cz) && Math.abs(signedArea(ring)) > 50) { pbox(cx, cz, 0.7, 0.7, eave + o.rh * 0.5, eave + o.rh + 1.0, [0.55, 0.36, 0.3]); pbox(cx, cz, 0.9, 0.9, eave + o.rh + 1.0, eave + o.rh + 1.15, [0.38, 0.38, 0.38]); }
+    }
     // flat roof: parapet + roof boxes (stair hatches, vents) with collision
     if (flatRoof) {
       const area = Math.abs(signedArea(ring)); if (area < 40) return;
@@ -522,6 +530,15 @@ diffuseColor.rgb *= col * 1.25;`);
           quad([a[0], eave, a[1]], [b[0], eave, b[1]], [b[0], eave + hh, b[1]], [a[0], eave + hh, a[1]], [nx, 0, nz], bc.map(v => v * (0.75 + 0.25 * Math.abs(nx))));
           this._addCollider(key, 'walls', { x1: a[0], z1: a[1], x2: b[0], z2: b[1], y0: eave - 0.1, y1: eave + hh, nx, nz, tile: key }, a[0], a[1], b[0], b[1]); }
         quad([cs[0][0], eave + hh, cs[0][1]], [cs[1][0], eave + hh, cs[1][1]], [cs[2][0], eave + hh, cs[2][1]], [cs[3][0], eave + hh, cs[3][1]], [0, 1, 0], bc.map(v => v * 1.1));
+      }
+      // small roof clutter (no collision): AC units, antenna masts, vent pipes
+      const nc = Math.min(5, 1 + Math.floor(area / 120));
+      for (let k = 0; k < nc; k++) {
+        const cx = x0 + (x1 - x0) * hash(seed + k * 17.3 + 5), cz = z0 + (z1 - z0) * hash(seed + k * 19.1 + 6); if (!pip(ir2, cx, cz) || holes.some(h => pip(h, cx, cz))) continue;
+        const t = hash(seed + k * 3.9 + 9);
+        if (t < 0.4) { pbox(cx, cz, 1.0, 0.7, eave, eave + 0.7, [0.8, 0.81, 0.8]); pbox(cx, cz, 0.7, 0.5, eave + 0.7, eave + 0.76, [0.25, 0.25, 0.27]); }
+        else if (t < 0.75) { pbox(cx, cz, 0.08, 0.08, eave, eave + 4.5, [0.3, 0.3, 0.32]); pbox(cx, cz, 1.2, 0.05, eave + 3.6, eave + 3.66, [0.3, 0.3, 0.32]); pbox(cx, cz, 0.8, 0.05, eave + 4.2, eave + 4.26, [0.3, 0.3, 0.32]); }
+        else { pbox(cx, cz, 0.18, 0.18, eave, eave + 1.4, [0.5, 0.5, 0.52]); pbox(cx, cz, 0.32, 0.32, eave + 1.4, eave + 1.5, [0.4, 0.4, 0.42]); }
       }
     }
   }
