@@ -12,7 +12,7 @@ import { SaveSystem, newestSave, hasSave } from './save.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { World } from './world.js';
-import { FX } from './fx.js';
+import { FX, WET } from './fx.js';
 import { SkyFX } from './skyfx.js';
 import { Post } from './post.js';
 
@@ -102,6 +102,7 @@ async function main() {
     const e = DAYCYCLE ? clock.sunElev() : (FORCE_NIGHT !== null ? -10 : elev), h = DAYCYCLE ? clock.hour : 21;
     let n = THREE.MathUtils.clamp((8 - e) / 11, 0, 1); n = n * n * (3 - 2 * n); if (FORCE_NIGHT !== null) n = FORCE_NIGHT;
     const lit = h >= 18 ? THREE.MathUtils.lerp(0.62, 0.3, Math.min(1, (h - 18) / 6)) : h < 5.5 ? 0.18 : 0.4;
+    { const dd = clock.day || 0, hs = Math.sin(dd * 91.7 + 13.1) * 43758.5; WET.value = qs.has('wet') ? parseFloat(qs.get('wet')) : (hs - Math.floor(hs) < 0.28 ? 0.75 : 0); }
     fx.setNight(n, lit); post.night = n; post.bloom = 0.42 + 0.5 * n; const e2 = DAYCYCLE ? clock.sunElev() : elev; post.glare = 0.55 * THREE.MathUtils.smoothstep(e2, -3, 6) * (e2 < 14 ? 1.25 : 0.8); post.sunDir.copy(su.sunPosition.value);
   }
   function applySky() {

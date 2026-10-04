@@ -35,6 +35,22 @@ export function patchFacadeNight(mat, winMask) {
   mat.customProgramCacheKey = () => 'kyivFacadeNight';
 }
 
+// wet roads / puddles: noise mask in world space lowers roughness (sky reflection) and darkens the surface; WET=0 leaves only rare dry-weather puddles
+export function patchRoadWet(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uWet = WET;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>\nvarying vec3 vWP; uniform float uWet; float pf = 0.0;
+float hh(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hh(i), hh(i + vec2(1, 0)), f.x), mix(hh(i + vec2(0, 1)), hh(i + vec2(1, 1)), f.x), f.y); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+  { float nz = vn(vWP.xz * 0.21) * 0.65 + vn(vWP.xz * 0.9) * 0.35; pf = smoothstep(0.62 - 0.22 * uWet, 0.7 - 0.22 * uWet, nz) * (0.12 + 0.88 * uWet) + uWet * 0.35; pf = clamp(pf, 0.0, 1.0); diffuseColor.rgb *= 1.0 - 0.38 * pf; }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.05, pf);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n  normal = normalize(mix(normal, nonPerturbedNormal, pf * 0.85));`);
+  };
+  mat.customProgramCacheKey = () => 'kyivRoadWet';
+}
+
 const glowVS = `
 varying vec2 vUv; uniform float uNight;
 void main() {

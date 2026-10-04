@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { InteriorManager, planBuilding, sArea, offsetRing, DOOR_W, DOOR_H } from './interior.js';
-import { patchFacadeNight } from './fx.js';
+import { patchFacadeNight, patchRoadWet } from './fx.js';
 import { pbrMaps, makeDoorTexture, DOOR_RECT, makeFacadeTextures, FACADE_PROPS, makeRoofTextures, makeGroundTextures, roadTexture, waterNormal } from './textures.js';
 
 const FLOOR_H = 3.1, GF_H = 4.2, CELL = 32;
@@ -51,7 +51,7 @@ export class World {
   constructor(scene, manifest, opts = {}) {
     this.scene = scene; this.man = manifest; this.tiles = new Map(); this.TILE = manifest.tile; this.NG = manifest.ng; this.GRID = manifest.grid;
     this.cells = new Map(); this.poles = new Map(); this.loading = new Set(); this.ready = []; this.loadR = opts.loadR || 1500; this.unloadR = opts.unloadR || 2300;
-    this.detailR = opts.detailR || 600; this.shadows = opts.shadows !== false; this.treeKeep = opts.treeKeep ?? 1; this.lampKeep = opts.lampKeep ?? 1;
+    this.detailR = opts.detailR || 600; this.shadows = opts.shadows !== false; this.treeKeep = opts.treeKeep ?? 1; this.curbs = opts.curbs !== false; this.lampKeep = opts.lampKeep ?? 1;
     this.facadeTex = makeFacadeTextures();
     const PBR = opts.pbr !== false, ns = opts.normalScale ?? 1.0;
     this.facadeMat = this.facadeTex.map((t, i) => { const m = new THREE.MeshStandardMaterial({ map: t, vertexColors: true, ...FACADE_PROPS[i] });
@@ -248,7 +248,7 @@ export class World {
     const group = new THREE.Group(); group.name = 'tile' + key;
     const t = { ix, iz, key, group, h: Float32Array.from(d.h), cellKeys: new Set(), waters: [], ox, oz, alive: true, plans: [], roads: d.r || [], blds: d.b || [] };
     this.tiles.set(key, t);
-    const add = (geo, mat, o = {}) => { const m = new THREE.Mesh(geo, mat); m.castShadow = !!o.cast; m.receiveShadow = o.receive !== false; if (o.order) m.renderOrder = o.order; m.matrixAutoUpdate = false; group.add(m); return m; };
+    const add = (geo, mat, o = {}) => { const m = o.mesh || new THREE.Mesh(geo, mat); m.castShadow = !!o.cast; m.receiveShadow = o.receive !== false; if (o.order) m.renderOrder = o.order; m.matrixAutoUpdate = false; group.add(m); return m; };
     // terrain
     { const NG = this.NG, G = this.GRID, pos = new Float32Array(NG * NG * 3), nor = new Float32Array(NG * NG * 3);
       for (let j = 0; j < NG; j++) for (let i = 0; i < NG; i++) { const k = j * NG + i, x = ox + i * G, z = oz + j * G; pos[3 * k] = x; pos[3 * k + 1] = t.h[k]; pos[3 * k + 2] = z; }
@@ -571,13 +571,14 @@ diffuseColor.rgb *= col * 1.25;`);
     if (this.roadMats[k]) return this.roadMats[k];
     const m = new THREE.MeshStandardMaterial({ map: roadTexture(kind), roughness: kind === 'rail' ? 1 : 0.92, color: 0xffffff, polygonOffset: !deck, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: !!deck });
     if (this.pbr) { const p = pbrMaps(m.map, { strength: kind === 'side' || kind === 'path' ? 3.2 : 1.6, rLo: kind[0] === 'a' || kind === 'plain' ? 0.55 : 0.7, rHi: 1.0, glossDark: false, maxSize: 512 }); m.normalMap = p.normalMap; m.roughnessMap = p.roughnessMap; m.normalScale.set(this.normalScale, this.normalScale); }
+    if (kind !== 'rail' && kind !== 'tram') patchRoadWet(m);
     return this.roadMats[k] = m;
   }
   _buildRoads(t, list, key, add) {
     const mbs = {};   // matkey -> {mb, order}
     const get = (kind, order, deck) => { const k = kind + (deck ? 'D' : ''); return mbs[k] || (mbs[k] = { mb: new MB(), kind, order, deck }); };
     const concrete = new MB();
-    const piers = new MB();
+    const piers = new MB(); const curbs = new MB(), manh = [], zebra = new MB(), ends = new Map();
     for (const r of list) {
       const cls = r.c, pts = r.p, np = pts.length / 2;
       let kind, order, hw = r.w / 2;
@@ -592,7 +593,12 @@ diffuseColor.rgb *= col * 1.25;`);
       { const x = pts[2 * np - 2], z = pts[2 * np - 1]; P.push([x, z, r.b ? r.y[np - 1] : this.heightAt(x, z) + 0.17]); }
       if (P.length < 2) continue;
       // sidewalks along streets
-      if (!r.b && typeof cls === 'number' && cls >= 2 && cls <= 6) this._ribbon(get('side', 1, false).mb, P, hw + 1.6, 0, 4, -0.03);
+      if (!r.b && typeof cls === 'number' && cls >= 3 && cls <= 6 && hw >= 2.6) for (const e of [0, 1]) { const j = e ? np - 1 : 0, k2 = Math.round(pts[2 * j] / 1.5) + ',' + Math.round(pts[2 * j + 1] / 1.5); (ends.get(k2) || ends.set(k2, []).get(k2)).push({ r, P, e, hw }); }
+      if (!r.b && typeof cls === 'number' && cls >= 2 && cls <= 6) {
+        this._ribbon(get('side', 1, false).mb, P, hw + 1.6, 0, 4, -0.03);
+        if (this.curbs && cls >= 3) this._curb(curbs, P, hw);
+        if (cls >= 3 && cls <= 5 && hw > 2.2) { let acc = hash(r.p[0] * 3.1 + r.p[1]) * 40; for (let i = 0; i < P.length - 1; i++) { const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], l = Math.hypot(dx, dz) || 1; acc += l; if (acc > 46) { acc = 0; const k = hash(P[i][0] * 1.7 + P[i][1] * 2.3), off = (k - 0.5) * hw * 0.9; manh.push(P[i][0] - dz / l * off, P[i][2] + 0.02, P[i][1] + dx / l * off, k * 6.28); } } }
+      }
       const deck = !!r.b;
       const M = get(kind, order, deck).mb;
       const e = this._ribbon(M, P, hw, 0, kind === 'rail' ? 4.8 : 9, 0);
@@ -658,6 +664,10 @@ diffuseColor.rgb *= col * 1.25;`);
       }
     }
     for (const k in mbs) { const o = mbs[k]; if (o.mb.empty) continue; const m = add(o.mb.build(), this._roadMat(o.kind, o.deck), { cast: false, order: o.deck ? 0 : o.order }); if (o.deck) { m.castShadow = this.shadows; } }
+    for (const arr of ends.values()) if (arr.length >= 3) for (const o of arr) this._zebra(zebra, o.P, o.e, o.hw);
+    if (!zebra.empty) { add(zebra.build(), this._zebraMat || (this._zebraMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 })), { cast: false }); this.stats.tris += zebra.i.length / 3; }
+    if (!curbs.empty) { add(curbs.build(), this.concreteMat, { cast: false }); this.stats.tris += curbs.i.length / 3; }
+    if (manh.length) this._manholes(manh, add);
     if (!concrete.empty) add(concrete.build(), this.concreteMat, { cast: this.shadows });
     if (!piers.empty) add(piers.build(), this.concreteMat, { cast: this.shadows });
   }
@@ -676,6 +686,45 @@ diffuseColor.rgb *= col * 1.25;`);
     }
   }
   // ribbon of half-width hw along P=[[x,z,y]...]; returns left/right edge point arrays
+  // curb stones: raised strip (0.2 wide, 0.13 high) along both edges of a street
+  _curb(B, P, hw) {
+    const tmp = new MB(), A = this._ribbon(tmp, P, hw, 0, 1, 0.0), C = this._ribbon(tmp, P, hw + 0.2, 0, 1, 0.0), H = 0.13, g = 0.78;
+    const quad = (p0, p1, p2, p3, n, u0, u1) => {   // p0-p1 along the road at the start, p2-p3 at the end; winding fixed by the wanted normal n
+      const a = B.v(p0[0], p0[1], p0[2], n[0], n[1], n[2], 0, u0, g, g, g), b = B.v(p1[0], p1[1], p1[2], n[0], n[1], n[2], 1, u0, g, g, g), c = B.v(p2[0], p2[1], p2[2], n[0], n[1], n[2], 0, u1, g, g, g), d = B.v(p3[0], p3[1], p3[2], n[0], n[1], n[2], 1, u1, g, g, g);
+      const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+      const cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
+      if (cx * n[0] + cy * n[1] + cz * n[2] > 0) { B.tri(a, b, c); B.tri(b, d, c); } else { B.tri(a, c, b); B.tri(b, c, d); }
+    };
+    const up = (p, h) => [p[0], p[1] + h, p[2]];
+    for (let i = 0; i < P.length - 1; i++) {
+      const u0 = i * 0.5, u1 = u0 + 0.5;
+      for (const side of ['L', 'R']) {
+        const a0 = A[side][i], a1 = A[side][i + 1], c0 = C[side][i], c1 = C[side][i + 1];
+        const sx = side === 'L' ? -1 : 1, nx = (a0[0] - P[i][0]), nz = (a0[2] - P[i][1]), nl = Math.hypot(nx, nz) || 1;   // outward (away from the road axis)
+        quad(up(a0, H), up(c0, H), up(a1, H), up(c1, H), [0, 1, 0], u0, u1);                                   // top
+        quad(a0, up(a0, H), a1, up(a1, H), [-nx / nl, 0, -nz / nl], u0, u1);                                    // face towards the road
+        void sx;
+      }
+    }
+  }
+  // zebra crossing 6.5 m before a junction end of a street (stripes along the road, spaced across its width) + stop line
+  _zebra(B, P, atEnd, hw) {
+    const n = P.length, a = atEnd ? P[n - 1] : P[0];
+    // direction along the road away from the junction
+    let q = null; for (let k = 1; k < n; k++) { const c = atEnd ? P[n - 1 - k] : P[k]; if (Math.hypot(c[0] - a[0], c[1] - a[1]) >= 8) { q = c; break; } } if (!q) return; let dx = q[0] - a[0], dz = q[1] - a[1]; const L = Math.hypot(dx, dz); if (L < 8) return; dx /= L; dz /= L;
+    const nx = -dz, nz = dx, d0 = 6.5, y = a[2] + 0.03 + (q[2] - a[2]) * (d0 / L), cx = a[0] + dx * d0, cz = a[1] + dz * d0, col = 0.92;
+    const rect = (x0, z0, x1, z1, x2, z2, x3, z3) => { const v = (x, z) => B.v(x, y, z, 0, 1, 0, 0, 0, col, col, col); const i0 = v(x0, z0), i1 = v(x1, z1), i2 = v(x2, z2), i3 = v(x3, z3); B.tri(i0, i1, i2); B.tri(i1, i3, i2); };
+    const w = hw * 0.92, len = 2.2;
+    for (let s = -w + 0.5; s < w - 0.4; s += 1.15) { const x = cx + nx * s, z = cz + nz * s; rect(x - nx * 0.28 - dx * len / 2, z - nz * 0.28 - dz * len / 2, x + nx * 0.28 - dx * len / 2, z + nz * 0.28 - dz * len / 2, x - nx * 0.28 + dx * len / 2, z - nz * 0.28 + dz * len / 2, x + nx * 0.28 + dx * len / 2, z + nz * 0.28 + dz * len / 2); }
+    const sx = cx + dx * 2.4, sz = cz + dz * 2.4;   // stop line (beyond the crossing, away from the junction)
+    rect(sx - nx * w - dx * 0.2, sz - nz * w - dz * 0.2, sx + nx * w - dx * 0.2, sz + nz * w - dz * 0.2, sx - nx * w + dx * 0.2, sz - nz * w + dz * 0.2, sx + nx * w + dx * 0.2, sz + nz * w + dz * 0.2);
+  }
+  _manholes(arr, add) {
+    const n = arr.length / 4, g = new THREE.CircleGeometry(0.42, 12).rotateX(-Math.PI / 2), im = new THREE.InstancedMesh(g, this._manholeMat || (this._manholeMat = new THREE.MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.55, metalness: 0.6, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })), n);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < n; i++) { q.setFromAxisAngle(up, arr[4 * i + 3]); p.set(arr[4 * i], arr[4 * i + 1], arr[4 * i + 2]); m.compose(p, q, sc); im.setMatrixAt(i, m); }
+    im.matrixAutoUpdate = false; im.frustumCulled = false; im.receiveShadow = true; add(g, null, { mesh: im, cast: false });
+  }
   _ribbon(B, P, hw, lift, vRep, ylift) {
     const n = P.length, L = [], R = [], dirs = [];
     for (let i = 0; i < n - 1; i++) { const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], l = Math.hypot(dx, dz) || 1; dirs.push([dx / l, dz / l]); }
