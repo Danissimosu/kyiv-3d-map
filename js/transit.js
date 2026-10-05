@@ -4,7 +4,9 @@ import * as THREE from 'three';
 import { $, UI, el, tap, toast, panel } from './ui.js';
 
 const COL = { 0: 0xa01818, 3: 0x1565c0, 11: 0x2e8b4a }, TNAME = { 0: 'Трамвай', 3: 'Автобус', 11: 'Тролейбус' }, TICON = { 0: '🚋', 3: '🚌', 11: '🚎' };
-const FARE = 8, BL = 11.8, UNIT = 14.4, TL = 28.8, LAT = 1.8, DWELL = 22, ATLAS_C = 8, ATLAS_R = 21, SIGN_C = 4, SIGN_R = 8;
+const FARE = 8, BL = 11.8, UNIT = 14.4, TL = 28.8, LAT = 1.8, DWELL = 22, ATLAS_C = 8, ATLAS_R = 21, SIGN_C = 4, SIGN_R = 8, TS0 = UNIT + 4.5 + 0.1, TS1 = UNIT / 2;
+// terminus: a finished trip near the player stays LAY s at the last stop (doors open), then drives the turning loop (≈TAILV m/s) onto the opposite direction's shape and waits ≤ WAITMAX s at its first stop for the next departure (the same vehicle continues as that trip)
+const LAY = 25, TAILV = 4.5, WAITMAX = 1200;
 const CAPV = { d: [8, 14, 24, 40], m: [5, 9, 14, 22] }, RADV = { d: [200, 280, 360, 450], m: [150, 200, 240, 280] };
 const CAPS = { d: [10, 16, 24, 32], m: [8, 12, 18, 26] }, RADS = { d: [130, 180, 240, 300], m: [100, 140, 180, 220] };
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -135,11 +137,21 @@ export class Transit {
   }
   // ---------------------------------------------------------------- geometry along a shape
   _find(sh, s) { const c = sh.cum; let lo = 0, hi = sh.n - 1; if (s <= 0) return 0; if (s >= c[hi]) return hi - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= s) lo = m; else hi = m; } return lo; }
-  _at(sh, s, o = {}) { const i = this._find(sh, s), L = sh.cum[i + 1] - sh.cum[i], t = L > 1e-6 ? Math.max(0, Math.min(1, (s - sh.cum[i]) / L)) : 0; o.x = sh.x[i] + (sh.x[i + 1] - sh.x[i]) * t; o.z = sh.z[i] + (sh.z[i + 1] - sh.z[i]) * t; o.i = i; return o; }
-  _pose(sh, s, lat, o) {   // centre point with lateral offset to the right of travel, yaw from the chord s-4 .. s+4
-    const a = this._at(sh, Math.max(0, s - 4)), b = this._at(sh, s + 4), c = this._at(sh, s, o); let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+  _at(sh, s, o = {}) { const i = this._find(sh, s), L = sh.cum[i + 1] - sh.cum[i], t = L > 1e-6 ? Math.max(i === 0 ? -3 : 0, Math.min(i === sh.n - 2 ? 1 + 40 / L : 1, (s - sh.cum[i]) / L)) : 0; o.x = sh.x[i] + (sh.x[i + 1] - sh.x[i]) * t; o.z = sh.z[i] + (sh.z[i + 1] - sh.z[i]) * t; o.i = i; return o; }   // straight extrapolation ≤ 40 m beyond the shape ends (tram bogies / rear section at the terminus)
+  _pose(sh, s, lat, o) {   // centre + lateral offset; yaw from a length-dependent chord (trams ≈ half a bogie wheelbase, buses 4 m) so the heading follows the curve without sharp kinks
+    const h = lat === 0 ? 7.2 : 4, a = this._at(sh, Math.max(0, s - h)), b = this._at(sh, s + h), c = this._at(sh, s, o); let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
     o.yaw = Math.atan2(dx, dz); o.x = c.x - dz * lat; o.z = c.z + dx * lat; return o;
   }
+  _bq(sh, q, o, d) {   // point on the rails at arc position q; behind a terminus junction (driver) the rear bogies are still on the previous shape
+    const pv = d && d.prev; if (pv && q < pv.p) return this._at(pv.sh, Math.max(0, pv.q - (pv.p - q)), o);
+    return this._at(sh, Math.max(0, Math.min(sh.cum[sh.n - 1], q)), o);
+  }
+  _unit(sh, sc, o, d) {   // tram section centred at arc position sc: both bogies (±4.5 m) sampled by arc length ON the polyline, body = chord between them (overhangs swing out in curves, like a real tram)
+    const A = this._bq(sh, sc + 4.5, this._ua || (this._ua = {}), d), B = this._bq(sh, sc - 4.5, this._ub || (this._ub = {}), d), dx = A.x - B.x, dz = A.z - B.z;
+    if (dx * dx + dz * dz < 4) return this._pose(sh, Math.max(0, sc), 0, o);
+    o.x = (A.x + B.x) / 2; o.z = (A.z + B.z) / 2; o.yaw = Math.atan2(dx, dz); return o;
+  }
+  _tramS(sh, s) { return Math.min(Math.max(s, TS0), sh.cum[sh.n - 1] - TS1); }   // keep all 4 bogies (and the front overhang) on the shape: [rear bogie of unit 2 ≥ 0, front end ≤ shape end]
   // schedule state of a trip: s along the shape, doors flag, segment / dwell index
   _state(pat, tt, o) {
     const n = pat.n, off = pat.off, lv = pat.leave, S = pat.s; o.seg = 0; o.dw = -1; o.doors = false; o.moving = false;
@@ -154,35 +166,114 @@ export class Transit {
   // ---------------------------------------------------------------- active trips (1 Hz): every vehicle in the city, positions for the minimap
   scan(force) {
     const day = this.day, T = this.cT, seen = new Set(), P = this.P; this.act.length = 0;
+    const lv = this.level, R = (this.mob ? RADV.m : RADV.d)[lv], cap = (this.mob ? CAPV.m : CAPV.d)[lv], px = P.x, pz = P.z;
+    this.retired = this.retired || new Map(); const claim = this.claim || (this.claim = new Map()); claim.clear(); for (const v of this.veh.values()) if (v.tl && v.tl.succ) claim.set(v.tl.succ.key, v);   // next trips that are already "this tram, after the loop"
     for (const ro of this.routes) for (const dir of ro.dirs) for (let pi = 0; pi < dir.pats.length; pi++) {
       const pat = dir.pats[pi], arr = pat[day]; if (!arr.length) continue;
       for (let bs = 0; bs < 2; bs++) {
-        const Tx = T + bs * 86400, lo = (Tx - pat.dur - 330) / 60, hi = (Tx + 45) / 60; let a = 0, b = arr.length;
+        const Tx = T + bs * 86400, lo = (Tx - pat.dur - 330) / 60, hi = (Tx + 300) / 60; let a = 0, b = arr.length;
         while (a < b) { const m = (a + b) >> 1; if (arr[m] < lo) a = m + 1; else b = m; }
         for (let j = a; j < arr.length && arr[j] <= hi; j++) {
           const key = ro.i + '.' + dir.idx + '.' + pi + '.' + arr[j] + '.' + bs; let v = this.veh.get(key);
-          if (!v) { v = { key, ro, dir, pat, t0: arr[j] * 60 - bs * 86400, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null }; this.veh.set(key, v); }
+          if (!v) { const A = claim.get(key), t0 = arr[j] * 60 - bs * 86400, tt0 = T - t0;
+            if (this.retired.has(key)) { if (this.retired.get(key) > T) continue; this.retired.delete(key); }
+            if (A && this.veh.get(A.key) === A && A.tl && A.tl.succ && A.tl.succ.key === key) {   // this departure is the vehicle that is just doing the turning loop
+              const tl = A.tl, ready = T - A.t0 - A.pat.dur >= LAY + tl.Tt;
+              if (ready && (!tl.swap || this._swapOk(A, tl))) v = this._handover(A, key, ro, dir, pat, t0);
+              else if (tt0 < (tl.swap ? -5 : 0)) continue;   // stays hidden: A is drawn instead
+              else tl.succ = null;   // late (no loop and the player keeps watching both ends): release, it starts on its own
+            }
+            if (!v && tt0 < -45) {   // up to 5 min early, but only near the player and only where nobody looks (so it never pops into view)
+              const p0 = pat.p0 || (pat.p0 = this._at(dir.sh, ro.t === 0 ? this._tramS(dir.sh, pat.s[0]) : pat.s[0], {})), d0 = Math.hypot(p0.x - px, p0.z - pz);
+              if (claim.has(key) || d0 > R * 1.3 || (d0 < R && this._inViewXZ(p0.x, p0.z))) continue;
+            }
+            if (!v) { v = { key, ro, dir, pat, t0, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null }; this.veh.set(key, v); } }
           this._upd(v, T, false);
-          // layover at the terminus: a vehicle that finished its trip waits 90 s with open doors (up to 5 min while the player stands within 40 m); it appears 45 s before departing.
-          // (Longer layovers made a quarter of the fleet look parked.)
-          if (v.tt > pat.dur + 90 && (v.tt > pat.dur + 300 || Math.hypot(v.x - P.x, v.z - P.z) > 40) && !(this.ride && this.ride.v === v)) { this.veh.delete(key); continue; }
+          // finished trip: far from the player it disappears after a 90 s layover; near the player it drives the turning loop and becomes the next departure (see _fin / _mkTail)
+          if (v.tt > pat.dur && !this._fin(v, R)) { this.veh.delete(key); this.retired.set(key, v.t0 + pat.dur + 400); continue; }
           seen.add(key); this.act.push(v);
         }
       }
     }
-    for (const k of [...this.veh.keys()]) if (!seen.has(k)) { const v = this.veh.get(k); if (this.ride && this.ride.v === v) { this._exit(true); } this.veh.delete(k); }
+    for (const [k, v] of [...this.veh]) if (!seen.has(k)) {   // out of the schedule window: only the ridden vehicle and terminus-loop vehicles survive (never yank a rider out)
+      if ((this.ride && this.ride.v === v) || v.tl) { this._upd(v, T, false); if (this.ride && this.ride.v === v || this._fin(v, R)) { seen.add(k); this.act.push(v); continue; } }
+      this.veh.delete(k); if (v.tt > v.pat.dur) this.retired.set(k, v.t0 + v.pat.dur + 400); }
     // near set
-    const lv = this.level, R = (this.mob ? RADV.m : RADV.d)[lv], cap = (this.mob ? CAPV.m : CAPV.d)[lv], px = P.x, pz = P.z;
     const c = [], prev = this.near; for (const v of this.act) { if (!this.filt.has(v.ro.t)) continue; const d = Math.hypot(v.x - px, v.z - pz), was = prev.includes(v); if (d < R * (was ? 1.2 : 1)) { v.dp = d * (was ? 0.75 : 1); c.push(v); } }   // hysteresis: a vehicle already drawn is not swapped out at the cap/radius edge
     c.sort((a, b) => a.dp - b.dp); this.near = c.slice(0, cap); if (this.ride && !this.near.includes(this.ride.v)) this.near.push(this.ride.v);
   }
   _upd(v, T, full) {
-    const tt = T - v.t0, st = v.st; this._state(v.pat, tt, st); v.s = st.s; v.doors = st.doors; v.seg = st.seg; v.dw = st.dw; v.moving = st.moving; v.tt = tt;
-    const lat = v.ro.t === 0 ? 0 : LAT;
-    if (full) { const o = this._pose(v.dir.sh, v.s, lat, v.st); v.x = o.x; v.z = o.z; v.yaw = o.yaw; } else { const c = this._at(v.dir.sh, v.s, v.st); v.x = c.x; v.z = c.z; }
+    const tt = T - v.t0, st = v.st, lat = v.ro.t === 0 ? 0 : LAT;
+    if (v.tl && tt > v.pat.dur) this._tailPos(v, tt);
+    else { this._state(v.pat, tt, st); v.s = st.s; v.doors = st.doors; v.seg = st.seg; v.dw = st.dw; v.moving = st.moving; v.tt = tt; v.sh = v.dir.sh;
+      if (lat === 0) { if (v.pv && v.s - TS0 > v.pv.p) v.pv = null; v.s = this._tramS(v.dir.sh, v.s); } }
+    if (full) { const o = lat === 0 ? this._unit(v.sh, v.s, v.st, this._vd(v)) : this._pose(v.sh, v.s, lat, v.st); v.x = o.x; v.z = o.z; v.yaw = o.yaw; } else { const c = this._at(v.sh, v.s, v.st); v.x = c.x; v.z = c.z; }
+  }
+  _rekey() {
+    const nv = new Map(); for (const v of this.veh.values()) { v.t0 -= 86400; if (v.tl && v.tl.succ) { const s = v.tl.succ; if (s.key.endsWith('.0')) { s.key = s.key.slice(0, -1) + '1'; s.t0 -= 86400; } else v.tl.succ = null; }
+      if (v.key.endsWith('.0')) v.key = v.key.slice(0, -1) + '1'; else if (!(this.ride && this.ride.v === v) && !v.tl) continue; nv.set(v.key, v); }
+    this.veh = nv; this.retired = new Map();
+  }
+  _vd(v) { return v.drv ? this.drive : v.pv ? v.pd : null; }   // rear bogies behind a terminus junction stay on the previous shape
+  // ---------------------------------------------------------------- terminus: finished trip → turning loop → next departure (same vehicle, no vanishing / popping in front of the player)
+  _fin(v, R) {
+    if (this.ride && this.ride.v === v) return true;
+    const P = this.P, d = Math.hypot(v.x - P.x, v.z - P.z), tau = v.tt - v.pat.dur;
+    if (!v.tl) { if (d < R * 1.3) { this._mkTail(v); this._tailPos(v, v.tt); this._at(v.sh, v.s, v.st); v.x = v.st.x; v.z = v.st.z; return true; } return tau <= 90; }
+    if (d > R * 1.3) return false;   // the player went away: nobody sees it
+    const tl = v.tl, parked = tau - LAY - tl.Tt;
+    if (tl.succ) { if (parked > WAITMAX + 300) tl.succ = null; return true; }
+    if (!tl.j && tau < LAY + 5) return true;
+    return !(parked > 45 && (d > R || !this._inView(v)));   // no next departure: it leaves (to the depot) only while nobody looks at it
+  }
+  _inView(v) { return this._inViewXZ(v.x, v.z); }
+  _inViewXZ(x, z) {   // roughly inside the camera's horizontal field of view (+ margin for a 29 m tram); very close = always "seen"
+    const P = this.P, dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz); if (d < 25) return true;
+    const c = (-Math.sin(P.yaw) * dx - Math.cos(P.yaw) * dz) / d; return Math.acos(Math.max(-1, Math.min(1, c))) < 1.4 + Math.atan(16 / d);
+  }
+  _mkTail(v) {
+    const pat = v.pat, ro = v.ro, tram = ro.t === 0, Ash = v.dir.sh, sE = tram ? this._tramS(Ash, pat.s[pat.n - 1]) : pat.s[pat.n - 1];
+    if (pat.jn === undefined) { const j = this._junc({ ro, dir: v.dir, s: sE }); pat.jn = j.cont && j.dir !== v.dir && j.q >= sE - 1 ? j : null; }
+    const j = pat.jn, tl = v.tl = { sE, j, D1: 0, D: 0, Tt: 0, tB: 0, succ: null, pv: null, pd: null }; if (!j) { this._swapSucc(v, tl); return; }
+    tl.D1 = Math.max(0, j.q - sE); if (tram) { tl.pv = { sh: Ash, q: j.q, p: j.p }; tl.pd = { prev: tl.pv }; }
+    const Bsh = j.dir.sh, tS = s => Math.max(j.p, tram ? this._tramS(Bsh, s) : s), tEnd = v.t0 + pat.dur + LAY, day = this.day; let best = null;
+    j.dir.pats.forEach((bp, pi) => {
+      const s0 = bp.s[0]; if (s0 < j.p - 1 || s0 - j.p > 400) return; const tB = tS(s0), D = tl.D1 + tB - j.p, tMin = tEnd + D / 10 + 46, arr = bp[day];
+      for (let bs = 0; bs < 2; bs++) { const need = (tMin + bs * 86400) / 60; let a = 0, b = arr.length; while (a < b) { const m = (a + b) >> 1; if (arr[m] < need) a = m + 1; else b = m; }
+        for (; a < arr.length; a++) { const t0 = arr[a] * 60 - bs * 86400; if (t0 > tEnd + WAITMAX || (best && t0 >= best.t0)) break; const key = ro.i + '.' + j.dir.idx + '.' + pi + '.' + arr[a] + '.' + bs;
+          if (this.claim.has(key) || this.veh.has(key)) continue; best = { key, t0, tB, D }; break; } }
+    });
+    if (best) { tl.succ = best; tl.tB = best.tB; tl.D = best.D; tl.Tt = Math.max(5, Math.min(best.D / TAILV, best.t0 - 46 - tEnd)); this.claim.set(best.key, v); }
+    else { tl.tB = tS(j.pat.s[0]); tl.D = tl.D1 + tl.tB - j.p; tl.Tt = Math.max(5, tl.D / TAILV); }
+  }
+  _swapSucc(v, tl) {   // no continuous rail to the opposite direction: the vehicle waits at the last stop and is swapped for the next departure from (nearly) the same place - only while neither spot is in view
+    const ro = v.ro, pat = v.pat; if (ro.dirs.length < 2) return; const dir = ro.dirs[(v.dir.idx + 1) % ro.dirs.length], e = this._at(v.dir.sh, tl.sE, {}), tEnd = v.t0 + pat.dur + LAY, day = this.day; let best = null;
+    dir.pats.forEach((bp, pi) => {
+      const tB = ro.t === 0 ? this._tramS(dir.sh, bp.s[0]) : bp.s[0], p0 = this._at(dir.sh, tB, {}); if (Math.hypot(p0.x - e.x, p0.z - e.z) > 150) return; const arr = bp[day];
+      for (let bs = 0; bs < 2; bs++) { const need = (tEnd + 50 + bs * 86400) / 60; let a = 0, b = arr.length; while (a < b) { const m = (a + b) >> 1; if (arr[m] < need) a = m + 1; else b = m; }
+        for (; a < arr.length; a++) { const t0 = arr[a] * 60 - bs * 86400; if (t0 > tEnd + WAITMAX || (best && t0 >= best.t0)) break; const key = ro.i + '.' + dir.idx + '.' + pi + '.' + arr[a] + '.' + bs;
+          if (this.claim.has(key) || this.veh.has(key)) continue; best = { key, t0, tB, D: 0, bx: p0.x, bz: p0.z }; break; } }
+    });
+    if (best) { tl.succ = best; tl.swap = true; tl.Tt = 5; this.claim.set(best.key, v); }
+  }
+  _swapOk(A, tl) { const P = this.P, R = (this.mob ? RADV.m : RADV.d)[this.level], dA = Math.hypot(A.x - P.x, A.z - P.z), dB = Math.hypot(tl.succ.bx - P.x, tl.succ.bz - P.z);
+    return (dA > R || !this._inView(A)) && (dB > R || !this._inViewXZ(tl.succ.bx, tl.succ.bz)); }
+  _tailPos(v, tt) {   // position of a finished trip: last stop (doors open) → loop on the old shape → new shape up to its first stop
+    const tl = v.tl, tau = tt - v.pat.dur, n = v.pat.n; v.tt = tt; v.seg = n - 1;
+    if (tau < LAY || !tl.j) { v.sh = v.dir.sh; v.s = tl.sE; v.pv = null; v.doors = tau < LAY; v.dw = v.doors ? n - 1 : -1; v.moving = false; return; }
+    const u = Math.min(1, (tau - LAY) / tl.Tt), e = u * u * (3 - 2 * u), dist = tl.D * e; v.moving = u < 1; v.dw = -1; v.doors = false;
+    if (dist < tl.D1) { v.sh = v.dir.sh; v.s = tl.sE + dist; v.pv = null; } else { v.sh = tl.j.dir.sh; v.s = tl.j.p + dist - tl.D1; v.pv = tl.pv; v.pd = tl.pd; }
+  }
+  _handover(A, key, ro, dir, pat, t0) {   // the tram that drove the loop IS this departure: same pose, rear bogies still on the old shape, ride/near-list identity kept
+    const tl = A.tl, v = { key, ro, dir, pat, t0, st: {}, hasY: A.hasY, y: A.y, yaw: A.yaw, lyaw: A.lyaw, x: A.x, z: A.z };
+    if (tl.swap) { v.hasY = false; v.lyaw = null; } else if (tl.pv && tl.tB - TS0 < tl.j.p) { v.pv = tl.pv; v.pd = tl.pd; }
+    const ai = this.act.indexOf(A); if (ai >= 0) this.act.splice(ai, 1); this.retired.set(A.key, A.t0 + A.pat.dur + 400);
+    this.veh.delete(A.key); this.veh.set(key, v); const ni = this.near.indexOf(A); if (ni >= 0) this.near[ni] = v;
+    if (this.ride && this.ride.v === A) { this.ride.v = v; this.cur = v; this.cabV = v; }
+    this.handovers = (this.handovers || 0) + 1; return v;
   }
   _initY(v) {   // bridge-safe start height: walk back along the route to a deck-free point, then follow ground/decks forward (same rule as normal driving)
-    const w = this.world, sh = v.dir.sh, step = 25; let k = 0;
+    const w = this.world, sh = v.sh || v.dir.sh, step = 25; let k = 0;
     for (; k < 60; k++) { const sp = Math.max(0, v.s - k * step), c = this._at(sh, sp), h = w.heightAt(c.x, c.z); if (!w.deckAt || w.deckAt(c.x, c.z, h + 70) < -1e8 || sp <= 0) break; }
     let sp = Math.max(0, v.s - k * step), c = this._at(sh, sp), y = w.heightAt(c.x, c.z) + 0.1;
     if (k === 60 || (k > 0 && sp <= 0)) { const d = w.deckAt(c.x, c.z, y + 70); if (d > -1e8) y = d + 0.1; }
@@ -257,7 +348,7 @@ export class Transit {
     const gc = this.ctx.clock;   // follow the game clock's weekday / time-of-day period (vehicles keep real-time speed: at 60x they would move at ~300 m/s)
     if (gc && this.rate === 1 && ((this.rs = (this.rs || 0) + dt) > 2)) { this.rs = 0; let df = ((gc.t - this.cT) % 86400 + 86400) % 86400; if (df > 43200) df -= 86400;
       if (((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > 6 * 3600) && !this.busy && !this.near.some(v => Math.hypot(v.x - P.x, v.z - P.z) < 160)) { this.cT = gc.t; this.wk = gc.wk; this.veh.clear(); this.t1 = 9; } }   // silent: only while nobody rides and no vehicle is in sight
-    if (this.cT >= 86400) { this.cT -= 86400; this.wk = (this.wk + 1) % 7; if (this.ride) this._exit(true); this.veh.clear(); this.t1 = 9; }   // real-time midnight (once per 24 real hours)
+    if (this.cT >= 86400) { this.cT -= 86400; this.wk = (this.wk + 1) % 7; this._rekey(); this.t1 = 9; }   // real-time midnight (once per 24 real hours): today's trips become 'yesterday's' (key suffix .1) — nobody vanishes, the rider stays
     this.t1 += dt; if (this.t1 > (this.rate > 5 ? 0.25 : 1)) { this.t1 = 0; this.scan(); }
     this.t2 += dt; if (this.t2 > 0.4) { this.t2 = 0; this._updateStops(P); }
     if (this.busy) { const g = this.ctx.game, c = g.crime; if (g.dead || (c && (c.jail || c.driving))) this.abort(true); else if (this.ls && Math.hypot(P.x - this.ls[0], P.z - this.ls[1]) > 25) { this._cancel(); } }
@@ -267,11 +358,11 @@ export class Transit {
     const list = this.drive ? this.near.concat([this.drive.v]) : this.near;
     for (const v of list) {
       if (!this.drive || v !== this.drive.v) this._upd(v, T, true);
-      this._groundY(v, dt); if (v.lyaw !== null) { let d = v.yaw - v.lyaw; d = Math.atan2(Math.sin(d), Math.cos(d)); v.yaw = v.lyaw + d * Math.min(1, dt * 10); } v.lyaw = v.yaw;
+      this._groundY(v, dt); if (v.lyaw !== null && v.ro.t !== 0) { let d = v.yaw - v.lyaw; d = Math.atan2(Math.sin(d), Math.cos(d)); v.yaw = v.lyaw + d * Math.min(1, dt * 10); } v.lyaw = v.yaw;
       if (v === hide) continue;
       const tram = v.ro.t === 0, units = tram ? 2 : 1, mesh = tram ? this.mTram : v.ro.t === 11 ? this.mTro : this.mBus;
       for (let u = 0; u < units; u++) {
-        let o = v; if (u === 1) { o = this._pose(v.dir.sh, Math.max(0, v.s - UNIT), 0, {}); o.y = v.y; }
+        let o = v; if (u === 1) { o = this._unit(v.sh || v.dir.sh, v.s - UNIT, this._u1 || (this._u1 = {}), this._vd(v)); o.y = v.y; }
         const idx = tram ? nt++ : (v.ro.t === 11 ? nr++ : nb++); Q.setFromAxisAngle(UP, o.yaw); V.set(o.x, o.y, o.z); M.compose(V, Q, ONE); mesh.setMatrixAt(idx, M); mesh.setColorAt(idx, v.ro.col);
         const hl = (tram ? UNIT : BL) / 2, dz = tram ? [hl - 3.0, hl - 9.4] : [hl - 2.2, -hl + 3.4], ph = tram ? 2.95 : 2.7, cell = v.ro.cell;
         for (const z of dz) { M2.compose(V.set(-1.27, 1.6, z), this.Q0, DS.set(1, 1, v.doors ? 0.45 : 1)); M2.premultiply(M); this.mDoor.setMatrixAt(nd, M2); this.mDoor.setColorAt(nd, v.doors ? OPENC : SHUT); nd++; }
@@ -356,17 +447,22 @@ Object.assign(Transit.prototype, {
   },
   _announce(v, first) {
     const pat = v.pat, r = this.ride; if (!r) return; const k = v.moving ? v.seg : v.dw;
-    if (v.moving && r.ann !== v.seg + 1) { r.ann = v.seg + 1; const nm = this.stops[pat.si[v.seg + 1]].name; toast(v.seg + 1 === pat.n - 1 ? `Наступна зупинка: ${nm} (кінцева)` : `Наступна зупинка: ${nm}`, 2800); }
+    if (v.moving && v.seg + 1 < pat.n && r.ann !== v.seg + 1) { r.ann = v.seg + 1; const nm = this.stops[pat.si[v.seg + 1]].name; toast(v.seg + 1 === pat.n - 1 ? `Наступна зупинка: ${nm} (кінцева)` : `Наступна зупинка: ${nm}`, 2800); }
     else if (!v.moving && k >= 1 && r.arr !== k) { r.arr = k; toast(k === pat.n - 1 ? `Кінцева зупинка: ${this.stops[pat.si[k]].name}. Просимо вийти` : `🚏 ${this.stops[pat.si[k]].name}`, 3200); }
     else if (first && !v.moving && k < pat.n - 1 && r.ann !== k + 1) { r.ann = k + 1; toast(`Наступна зупинка: ${this.stops[pat.si[k + 1]].name}`, 3600); }
   },
   _seat(v, P, lx, lz, eyeAbove) {
-    const tram = v.ro.t === 0, int = tram ? this.intTram : this.intBus; let c = v; if (tram) c = this._pose(v.dir.sh, Math.max(0, v.s - UNIT / 2), 0, {}); c.y = v.y;
+    const tram = v.ro.t === 0, int = tram ? this.intTram : this.intBus; let c = v;
+    if (tram) {   // the driver's cab / interior follows the FRONT section (pose on the rails at the cab): the view heading is the track tangent in curves
+      const f = this._unit(v.sh || v.dir.sh, v.s, this._fp || (this._fp = {}), this._vd(v)), sn = Math.sin(f.yaw), cs = Math.cos(f.yaw); c = { x: f.x - sn * UNIT / 2, z: f.z - cs * UNIT / 2, yaw: f.yaw };
+    }
+    c.y = v.y;
     this.ls = [P.x, P.z]; int.visible = true; int.position.set(c.x, v.y, c.z); int.rotation.y = c.yaw; this.cInt = int;
+    if (this.cabYaw !== undefined && this.cabV === v) { let dy = c.yaw - this.cabYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); P.yaw += dy; } this.cabYaw = c.yaw; this.cabV = v;   // the camera turns with the vehicle
     this.V.set(lx, 0, lz).applyAxisAngle(this.UP, c.yaw); P.x = c.x + this.V.x; P.z = c.z + this.V.z; P.y = v.y + 0.79 - 1.7 + eyeAbove; P.vx = P.vz = P.vy = 0; P.grounded = true; this.ls = [P.x, P.z];
   },
   _cancel() {   // the player was teleported away (map tap / debug): leave the vehicle where they are
-    this.ride = null; this.drive = null; this.cur = null; this.ls = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = 'none';
+    if (this.ride) this.lastExit = { why: 'cancel', key: this.ride.v.key, t: this.cT }; this.ride = null; this.drive = null; this.cur = null; this.ls = null; this.cabV = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = 'none';
   },
   _rideStep(P, dt) {
     const r = this.ride, v = r.v; r.t += dt; const tram = v.ro.t === 0;
@@ -375,21 +471,21 @@ Object.assign(Transit.prototype, {
     if (v.dw === v.pat.n - 1 && v.tt > v.pat.dur + 12) this._exit(); else if (v.tt > v.pat.dur + 20) this._exit(true);
   },
   _exit(silent) {
-    const r = this.ride; if (!r) return; const v = r.v, P = this.P; this.ride = null; this.cur = null; this.ls = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = this.drive ? 'flex' : 'none';
+    const r = this.ride; if (!r) return; const v = r.v, P = this.P; this.lastExit = { why: v.dw === v.pat.n - 1 && v.tt >= v.pat.dur ? 'terminus' : silent ? 'silent' : 'user', key: v.key, t: this.cT }; this.ride = null; this.cabV = null; this.cur = null; this.ls = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = this.drive ? 'flex' : 'none';
     const cs = Math.cos(v.yaw), sn = Math.sin(v.yaw); let cx = v.x - (v.ro.t === 0 ? sn * UNIT / 2 : 0), cz = v.z - (v.ro.t === 0 ? cs * UNIT / 2 : 0);
     P.x = cx - cs * 3.4; P.z = cz + sn * 3.4; const gy = this.world.groundAt(P.x, P.z, v.y + 1.2); P.y = Math.max(gy, this.world.heightAt(P.x, P.z)) + 0.05; P.eye = P.y + 1.7; P.vx = P.vz = P.vy = 0; P.yaw = v.yaw + Math.PI + 1.57; P.pitch = 0;
     if (!silent) toast('Вы вышли из транспорта');
   },
   skip() {
     const r = this.ride, v = r ? r.v : null; if (!v) { if (this.drive) toast('Едьте к следующей остановке'); return; }
-    const pat = v.pat; let k = v.moving ? v.seg + 1 : Math.min(v.dw + 1, pat.n - 1); if (!v.moving && v.dw === pat.n - 1) return; const target = v.t0 + pat.off[k] - 2.5; if (target > this.cT) this.cT = target;
+    const pat = v.pat; let k = v.moving ? v.seg + 1 : Math.min(v.dw + 1, pat.n - 1); if ((!v.moving && v.dw === pat.n - 1) || v.tt > pat.dur || k > pat.n - 1) return; const target = v.t0 + pat.off[k] - 2.5; if (target > this.cT) this.cT = target;
     this.t1 = 9; toast('⏭ Перегон пропущен');
   },
   abort(silent) { if (this.ride) this._exit(true); if (this.drive) this.stopDriving('abort', silent); },
   _hud() {
     let t = '';
-    if (this.ride) { const v = this.ride.v, k = v.moving ? v.seg + 1 : Math.min(v.dw + 1, v.pat.n - 1); t = `${TICON[v.ro.t]} ${v.ro.n} → ${v.dir.to}<br>${v.moving || v.dw < v.pat.n - 1 ? 'След.: ' + this.stops[v.pat.si[k]].name : 'Конечная'} · 🕒 ${fmt(this.cT)}`; }
-    else if (this.drive) { const d = this.drive; const nx = d.pat.si[d.k + 1] !== undefined ? this.stops[d.pat.si[d.k + 1]].name : '—', dist = Math.max(0, d.pat.s[d.k + 1] - d.s);
+    if (this.ride) { const v = this.ride.v, k = Math.min(v.moving ? v.seg + 1 : v.dw + 1, v.pat.n - 1); t = `${TICON[v.ro.t]} ${v.ro.n} → ${v.dir.to}<br>${v.moving || v.dw < v.pat.n - 1 ? 'След.: ' + this.stops[v.pat.si[k]].name : 'Конечная'} · 🕒 ${fmt(this.cT)}`; }
+    else if (this.drive) { const d = this.drive; const nx = d.pat.si[d.k + 1] !== undefined ? this.stops[d.pat.si[d.k + 1]].name : (d.tail ? 'разворотное кольцо' : '—'), dist = d.pat.si[d.k + 1] !== undefined ? Math.max(0, d.pat.s[d.k + 1] - d.s) : Math.max(0, d.dir.sh.cum[d.dir.sh.n - 1] - d.s);
       t = `${TICON[d.ro.t]} Маршрут ${d.ro.n} → ${d.dir.to}<br>След.: ${nx} · ${Math.round(dist)} м · ${Math.round(Math.abs(d.vel) * 3.6)} км/ч · заработано ₴${d.earned}${d.hold > 0 ? '<br>🚪 Посадка пассажиров…' : ''}`; }
     if (t !== this._ht) { this._ht = t; this.hudEl.innerHTML = t; this.hudEl.style.display = t ? 'block' : 'none'; }
   },
@@ -432,11 +528,12 @@ Object.assign(Transit.prototype, {
     for (const ro of this.routes) if (ro.t === type) for (const dir of ro.dirs) {
       const pat = dir.pats.reduce((a, b) => (b.s[b.n - 1] - b.s[0] > a.s[a.n - 1] - a.s[0] ? b : a)); if (pat.n < 3 && dir.pats.length > 1) continue;
       let k0 = 0, dm = 1e9; for (let k = 0; k < pat.n - 1; k++) { const st = this.stops[pat.si[k]], d = Math.hypot(st.x - poi.x, st.z - poi.z); if (d < dm) { dm = d; k0 = k; } }
-      k0 = Math.max(k0, pat.n - 4); const score = dm - Math.min(pat.n, 8) * 120; if (!best || score < best.score) best = { ro, dir, pat, k: k0, dm, score };
+      k0 = Math.min(k0, Math.max(0, pat.n - 4));   // leave at least 3 stops ahead
+      const score = dm - Math.min(pat.n, 8) * 120; if (!best || score < best.score) best = { ro, dir, pat, k: k0, dm, score };
     }
     if (!best) { toast('Нет подходящего маршрута'); return false; }
     const { ro, dir, pat, k } = best, P = this.P; if (this.ride) this._exit(true);
-    const v = { key: 'drv', ro, dir, pat, t0: 0, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null, s: Math.max(0, pat.s[k] - 14), doors: false, moving: false, drv: true, dw: -1, seg: 0, tt: 0 };
+    const v = { key: 'drv', ro, dir, pat, t0: 0, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null, s: ro.t === 0 ? this._tramS(dir.sh, Math.max(0, pat.s[k] - 14)) : Math.max(0, pat.s[k] - 14), doors: false, moving: false, drv: true, dw: -1, seg: 0, tt: 0 };
     const o = this._pose(dir.sh, v.s, ro.t === 0 ? 0 : LAT, {}); Object.assign(v, { x: o.x, z: o.z, yaw: o.yaw }); this.drive = { v, ro, dir, pat, k, s: v.s, vel: 0, hold: 0, earned: 0, served: 0, poi, t: 0 };
     this.cur = v; this.ls = null; P.fly = false; P.yaw = v.yaw + Math.PI; P.pitch = 0; this.ctx.teleport(v.x, v.z); this.bSkip.style.display = 'none'; this.cInt = null;
     toast(`${TICON[ro.t]} Маршрут ${ro.n} → ${dir.to}. W — газ, S — тормоз. На каждой остановке встаньте в зоне и откройте двери (кнопка E); пропуск — штраф`, 5200); return true;
@@ -448,34 +545,63 @@ Object.assign(Transit.prototype, {
   },
   _openDoors() {
     const d = this.drive; if (!d || d.hold > 0 || d.k >= d.pat.n - 1) return; const dist = d.pat.s[d.k + 1] - d.s; if (Math.abs(dist) >= 9 || d.vel >= 0.5) { toast('Остановитесь в зоне остановки'); return; }
-    const j = this.jobs, prec = Math.abs(dist) < 3; d.hold = 4.5; d.vel = 0; d.k++; d.served++; if (j) j.addBonus(prec ? 14 : 6, prec ? 'Точная остановка' : 'Остановка');
+    const j = this.jobs, prec = Math.abs(dist) < 3; const pay = prec ? 14 : 6; d.hold = 4.5; d.vel = 0; d.k++; d.served++; d.earned += pay; if (j) j.addBonus(pay, prec ? 'Точная остановка' : 'Остановка');
     toast(`🚏 ${this.stops[d.pat.si[d.k]].name}${prec ? ' · точно' : ''}`, 2200);
   },
-  _nextTrip(d) {   // terminus reached: turn round (opposite direction) or restart the line
-    const ro = d.ro, dir = ro.dirs.length > 1 ? ro.dirs[(d.dir.idx + 1) % ro.dirs.length] : d.dir;
-    const pat = dir.pats.reduce((a, b) => (b.s[b.n - 1] - b.s[0] > a.s[a.n - 1] - a.s[0] ? b : a));
-    d.dir = dir; d.pat = pat; d.k = 0; d.s = pat.s[0]; d.vel = 0; d.v.dir = dir; d.v.pat = pat; toast(`Конечная. Разворот → ${dir.to}`, 3200);
+  _sEnd(d) { return d.dir.sh.cum[d.dir.sh.n - 1] - (d.ro.t === 0 ? TS1 : 0); },
+  _junc(d) {   // terminus: where the tail of this shape meets the opposite direction's shape (before its first stop). gap ≤ 2 m → drive on continuously, else stop + fade
+    const ro = d.ro, dir = ro.dirs.length > 1 ? ro.dirs[(d.dir.idx + 1) % ro.dirs.length] : d.dir, pat = dir.pats.reduce((a, b) => (b.s[b.n - 1] - b.s[0] > a.s[a.n - 1] - a.s[0] ? b : a));
+    const sh = d.dir.sh, s2 = dir.sh, qMax = this._sEnd(d), A = {}, B = {}; let best = null, good = null;
+    if (dir !== d.dir) for (let q = Math.min(d.s, qMax); q <= qMax + 1e-6; q = q < qMax && q + 1 > qMax ? qMax : q + 1) {
+      this._at(sh, q, A); this._at(sh, q + 1, B); let tx = B.x - A.x, tz = B.z - A.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl; let bd = 1e9, bp = 0, bdot = 0;
+      for (let i = 0; i < s2.n - 1 && s2.cum[i] <= pat.s[0]; i++) { const ax = s2.x[i], az = s2.z[i], dx = s2.x[i + 1] - ax, dz = s2.z[i + 1] - az, l2 = dx * dx + dz * dz; if (l2 < 1e-9) continue;
+        const sl = Math.sqrt(l2), t = Math.max(0, Math.min(1, ((A.x - ax) * dx + (A.z - az) * dz) / l2, (pat.s[0] - s2.cum[i]) / sl)), dd = Math.hypot(A.x - ax - dx * t, A.z - az - dz * t); if (dd < bd) { bd = dd; bp = s2.cum[i] + sl * t; bdot = (dx * tx + dz * tz) / sl; } }   // only B's head up to its first stop (distance measured to the clamped point)
+      if (bdot < 0.6) continue; const c = { q, p: bp, gap: bd };
+      if (bd < 1) good = c; if (!best || bd < best.gap) best = c;   // the LAST well-aligned meeting point (drive the whole loop), else the closest one
+      if (q >= qMax) break;
+    }
+    const j = good || best; if (j && j.gap <= 2) return { dir, pat, q: j.q, p: j.p, gap: j.gap, cont: true };
+    return { dir, pat, q: qMax, p: null, gap: j ? j.gap : 1e9, cont: false };
   },
+  _nextTrip(d) {   // end of the terminus tail: continue on the opposite direction (continuous rail → rear bogies stay on the old shape until they pass the junction)
+    const ro = d.ro, j = d.junc || this._junc(d), dir = j.dir, pat = j.pat, sh = dir.sh, v = d.v, oldSh = d.dir.sh, tram = ro.t === 0;
+    let bs;
+    if (j.cont) { bs = j.p; d.prev = tram ? { sh: oldSh, q: j.q, p: j.p } : null; }
+    else {   // no continuous rail between the two shapes: stop at the end, short fade, continue from the nearest point of the next shape
+      const c = this._at(oldSh, j.q, {}); bs = pat.s[0]; let bd = 1e9;
+      for (let i = 0; i < sh.n - 1 && sh.cum[i] <= pat.s[0]; i++) { const ax = sh.x[i], az = sh.z[i], dx = sh.x[i + 1] - ax, dz = sh.z[i + 1] - az, l2 = dx * dx + dz * dz, t = l2 > 1e-9 ? Math.max(0, Math.min(1, ((c.x - ax) * dx + (c.z - az) * dz) / l2)) : 0, dd = Math.hypot(c.x - ax - dx * t, c.z - az - dz * t); if (dd < bd) { bd = dd; bs = Math.min(pat.s[0], sh.cum[i] + Math.sqrt(l2) * t); } }
+      if (dir === d.dir) bs = Math.max(0, pat.s[0] - 30);   // single-direction line: restart before the first stop
+      if (tram) bs = this._tramS(sh, bs); d.prev = null; d.vel = 0; this._fade();
+    }
+    this.lastTurn = { cont: !!j.cont, gap: j.gap, route: ro.n }; (this.turns || (this.turns = [])).push(this.lastTurn);
+    d.dir = dir; d.pat = pat; d.k = -1; d.s = bs; d.tail = false; d.junc = null; v.dir = dir; v.pat = pat;
+    while (d.k < pat.n - 2 && pat.s[d.k + 1] < bs - 8) d.k++;   // stops already behind the restart point are not "skipped"
+    toast(`${TICON[ro.t]} Разворот → ${dir.to}. Следующая: ${this.stops[pat.si[d.k + 1]].name}`, 3200);
+  },
+  _fade() { this.fades = (this.fades || 0) + 1; if (!this.fadeEl) { this.fadeEl = el('div', '', '', document.body); this.fadeEl.style.cssText = 'position:fixed;inset:0;background:#000;z-index:13;pointer-events:none;opacity:0;transition:opacity .35s'; } const f = this.fadeEl; f.style.transition = 'none'; f.style.opacity = 1; setTimeout(() => { f.style.transition = 'opacity .6s'; f.style.opacity = 0; }, 60); },
   _driveStep(P, dt) {
     const d = this.drive, v = d.v, K = this.ctx.keys, T = this.ctx.T, tram = d.ro.t === 0; d.t += dt;
     let thr = (K.KeyW || K.ArrowUp ? 1 : 0) - (K.KeyS || K.ArrowDown ? 1 : 0); if (this.ctx.IS_TOUCH && Math.abs(T.jy) > 0.15) thr = -T.jy;
     const brake = K.Space || T.jump, vmax = tram ? 15 : 16.5; let nextS = d.pat.s[d.k + 1]; const dist = nextS - d.s;
-    if (d.hold > 0) { d.hold -= dt; d.vel = 0; v.doors = true; if (d.hold <= 0) { v.doors = false; if (d.k >= d.pat.n - 1) this._nextTrip(d); } }
+    if (d.hold > 0) { d.hold -= dt; d.vel = 0; v.doors = true; if (d.hold <= 0) { v.doors = false; if (d.k >= d.pat.n - 1) { d.tail = true; d.junc = this._junc(d); if (d.junc.q - d.s < 3) this._nextTrip(d); else toast('Конечная. Проезжайте по разворотному кольцу (W)', 3600); } } }
     else {
       let a = thr > 0 ? (tram ? 2.0 : 2.4) * thr : thr < 0 ? 4.6 : -0.5; if (thr === 0 && d.vel < 0.3) { d.vel = 0; a = 0; }
       let vm = vmax; if (dist < 90 && dist > -12 && thr <= 0) vm = Math.min(vm, Math.sqrt(2 * 2.6 * Math.max(0, dist - 0.8)) + 0.05);   // coasting: the approach assist brakes to the stop; holding the throttle overrides it
       d.vel += a * dt; if (brake) d.vel = Math.max(0, d.vel - 6 * dt); d.vel = Math.max(0, Math.min(d.vel, vm));
-      d.s += d.vel * dt; const last = d.pat.s[d.pat.n - 1]; if (d.s > last) { d.s = last; d.vel = 0; }
+      if (d.tail && !d.junc) d.junc = this._junc(d);
+      d.s += d.vel * dt; const last = d.tail ? d.junc.q : Math.min(d.pat.s[d.pat.n - 1], this._sEnd(d)); if (d.s > last) { d.s = last; if (!d.tail || !d.junc.cont) d.vel = 0; }
+      if (d.tail && d.s >= d.junc.q - 0.3) this._nextTrip(d);
       if (nextS !== undefined && d.k < d.pat.n - 1 && d.s > nextS + 12) {   // drove past the stop without opening the doors
         d.skipped = (d.skipped || 0) + 1; if (this.jobs) this.jobs.addPen(40, 'Пропуск остановки'); d.k++;
         if (d.k >= d.pat.n - 1) { d.hold = 2.5; }
       }
     }
-    v.s = d.s; const o = this._pose(d.dir.sh, d.s, tram ? 0 : LAT, v.st); v.x = o.x; v.z = o.z; v.yaw = o.yaw; v.moving = d.vel > 0.2; this._groundY(v, dt); v.lyaw = null;
-    this._seat(v, P, 0.55, (tram ? TL : BL) / 2 - 1.35, 1.1);
+    if (tram) { if (d.prev && d.s - TS0 > d.prev.p) d.prev = null; if (!d.prev) d.s = this._tramS(d.dir.sh, d.s); }
+    v.s = d.s; const o = tram ? this._unit(d.dir.sh, d.s, v.st, d) : this._pose(d.dir.sh, d.s, LAT, v.st); v.x = o.x; v.z = o.z; v.yaw = o.yaw; v.moving = d.vel > 0.2; this._groundY(v, dt); v.lyaw = null;
+    this._seat(v, P, tram ? 0 : 0.55, (tram ? TL : BL) / 2 - 1.35, 1.1);   // tram: centred cab; bus: driver on the left
   },
   stopDriving(why, silent) {
-    const d = this.drive; if (!d) return; const P = this.P; this.drive = null; this.cur = null; this.ls = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = 'none';
+    const d = this.drive; if (!d) return; const P = this.P; this.drive = null; this.cabV = null; this.cur = null; this.ls = null; this.intBus.visible = this.intTram.visible = false; this.bSkip.style.display = 'none';
     if (this.jobs) this.jobs.onDriveEnd(why);
     const pl = d.poi && d.poi.pl; if (pl && pl.tile && pl.tile.alive && why !== 'abort') this.ctx.gotoDoor(pl, 4.5); else if (why !== 'abort') this.ctx.teleport(d.poi.x + 12, d.poi.z + 12);
     else { const gy = this.world.heightAt(d.v.x, d.v.z); P.y = gy + 0.1; P.eye = P.y + 1.7; }

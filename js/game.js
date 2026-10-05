@@ -118,6 +118,8 @@ export class Game {
   _phone() {
     const p = this.phoneP, b = p.body, { P, ctx } = this; this.pk = 0.35;
     const tabs = el('div', 'chips', '', b), cv = document.createElement('canvas'); cv.width = 320; cv.height = 320; cv.style.cssText = 'width:min(100%,62vh);aspect-ratio:1;border-radius:12px;display:block;margin:6px 0;background:#222';
+    // CPU-backed 2D context: a GPU-accelerated canvas inside the full-screen panel stalls the compositor for 15-20 s per update under software GL (headless tests) and gains nothing on a 320 px map
+    const cg = cv.getContext('2d', { willReadFrequently: true });
     const info = el('div', '', '', b); this.pTab = 'map';
     const nearby = el('div', '', '', b), bal = el('div', '', '', b); b.insertBefore(cv, info);
     const zoomRow = el('div', 'chips', '', b); b.insertBefore(zoomRow, info);
@@ -138,7 +140,7 @@ export class Game {
     };
     sh();
     const draw = () => {
-      if (!p.isOpen) return; const g = cv.getContext('2d'), RV = this.pTab === 'rent' && this.rent ? this.rent.view : null, cx = RV ? RV.x : P.x, cz = RV ? RV.z : P.z, kk = RV ? RV.k : this.pk; ctx.paintMap(g, 320, 320, cx, cz, kk, true);
+      if (!p.isOpen) return; const g = cg, RV = this.pTab === 'rent' && this.rent ? this.rent.view : null, cx = RV ? RV.x : P.x, cz = RV ? RV.z : P.z, kk = RV ? RV.k : this.pk; ctx.paintMap(g, 320, 320, cx, cz, kk, true);
       if (RV) this.rent.drawMarkers(g, 320, 320, cx, cz, kk, true); else { this.pois.drawMarkers(g, 320, 320, cx, cz, kk, true); this.transit && this.transit.drawMarkers(g, 320, 320, cx, cz, kk, true); this.taxi && this.taxi.drawMarkers(g, 320, 320, cx, cz, kk, true); this.rent && this.rent.drawHome(g, 320, 320, cx, cz, kk); }
       g.save(); g.translate(160 + (P.x - cx) * kk, 160 + (P.z - cz) * kk); g.rotate(-P.yaw); g.fillStyle = '#2d7ff9'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 9); g.lineTo(0, 4); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
       g.fillStyle = '#fff'; g.font = 'bold 12px sans-serif'; g.fillText('С ↑', 6, 14); g.fillText(`${(1 / kk * 40).toFixed(0)} м ▭`, 6, 312);
