@@ -1,6 +1,7 @@
 // Save system: two slots in localStorage ('manual' + 'auto'), full game snapshot (player, survival, money, inventory, wanted level,
 // job shift, game clock, stolen cars). Pure data in / out; main.js wires it to the live systems.
 import { WD, hhmm, CLOCK_V, BASE_MONDAY, MON } from './clock.js';
+import { toast } from './ui.js';
 const KEYS = { manual: 'kyiv.save.manual.v1', auto: 'kyiv.save.auto.v1' };
 export const SLOT_NAMES = { manual: 'Ручное сохранение', auto: 'Автосохранение' };
 const VER = 1;
@@ -73,6 +74,8 @@ export class SaveSystem {
     const c0 = s.clock || {}, wasV2 = c0.cv === CLOCK_V;
     if (!clock.real || (wasV2 && !c0.rt)) { if (wasV2) { clock.manual(); clock.day = c0.day | 0; clock.wk = c0.wk | 0; clock.t = c0.t || 0; } else clock.set(c0.wk | 0, (c0.t || 0) / 60); }
     if (!wasV2) migrateDays(game.S, clock.day - (c0.day | 0), clock);
+    // real time, away for 2+ days: the lease pauses while the game is closed (no late fees / eviction for days you didn't play)
+    else if (clock.real && c0.rt !== 0 && clock.day - (c0.day | 0) >= 2 && game.S.home) { const g = clock.day - (c0.day | 0); migrateDays(game.S, g, clock); this.awayDays = g; setTimeout(() => toast(`🏠 Вас не было ${g} дн. — аренда стояла на паузе, пени не начислялись`, 5000), 1500); }
     P.fly = !!s.P.fly; this.teleport(s.P.x, s.P.z, s.P.yaw, s.P.pitch);
     P.restoreY = P.wait ? s.P.y : undefined; P.y = s.P.y; P.eye = P.y + 1.7;     // exact height (teleport() lands on the highest surface = roofs)
     crime.heat = s.crime ? s.crime.heat : 0;

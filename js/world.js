@@ -154,7 +154,7 @@ export class World {
     return g;
   }
   // ---- vehicle-only point obstacles (tree trunks, lamp posts, stop shelters): {x,z,r,tile}; cells of PC metres
-  addPole(tileKey, x, z, r) { const k = Math.floor(x / 16) + ',' + Math.floor(z / 16); let a = this.poles.get(k); if (!a) { a = []; this.poles.set(k, a); } a.push({ x, z, r, tile: tileKey }); if (tileKey !== '*') { const t = this.tiles.get(tileKey); if (t) (t.poleKeys || (t.poleKeys = new Set())).add(k); } }
+  addPole(tileKey, x, z, r, f) { const k = Math.floor(x / 16) + ',' + Math.floor(z / 16); let a = this.poles.get(k); if (!a) { a = []; this.poles.set(k, a); } a.push(f ? { x, z, r, tile: tileKey, f } : { x, z, r, tile: tileKey }); if (tileKey !== '*') { const t = this.tiles.get(tileKey); if (t) (t.poleKeys || (t.poleKeys = new Set())).add(k); } }
   dropPoles(t, key) { if (!t.poleKeys) return; for (const k of t.poleKeys) { const a = this.poles.get(k); if (!a) continue; const b = a.filter(o => o.tile !== key); if (b.length) this.poles.set(k, b); else this.poles.delete(k); } t.poleKeys = null; }
   collideCar(p, r) {   // pushes p out of poles; returns the push distance (0 = free)
     let tot = 0;
@@ -618,10 +618,10 @@ diffuseColor.rgb *= col * 1.25;`);
       if (!r.b && typeof cls === 'number' && cls >= 2 && cls <= 6) {
         this._ribbon(get('side', 1, false).mb, P, hw + 1.6, 0, 4, -0.03);
         if (this.curbs && cls >= 3) this._curb(curbs, P, hw);
-        if (TP && cls >= 3 && cls <= 5 && hw > 2.2) this._furnish(furn, TP, P, hw, r.p[0] * 5.3 + r.p[1], false);
+        if (TP && cls >= 3 && cls <= 5 && hw > 2.2) this._furnish(furn, TP, P, hw, r.p[0] * 5.3 + r.p[1], false, key);
         if (cls >= 3 && cls <= 5 && hw > 2.2) { let acc = hash(r.p[0] * 3.1 + r.p[1]) * 40; for (let i = 0; i < P.length - 1; i++) { const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], l = Math.hypot(dx, dz) || 1; acc += l; if (acc > 46) { acc = 0; const k = hash(P[i][0] * 1.7 + P[i][1] * 2.3), off = (k - 0.5) * hw * 0.9; manh.push(P[i][0] - dz / l * off, P[i][2] + 0.02, P[i][1] + dx / l * off, k * 6.28); } } }
       }
-      if (TP && cls === 0 && !r.b) this._furnish(furn, TP, P, hw, r.p[0] * 5.3 + r.p[1], true);
+      if (TP && cls === 0 && !r.b) this._furnish(furn, TP, P, hw, r.p[0] * 5.3 + r.p[1], true, key);
       const deck = !!r.b;
       const M = get(kind, order, deck).mb;
       const e = this._ribbon(M, P, hw, 0, kind === 'rail' ? 4.8 : 9, 0);
@@ -746,16 +746,20 @@ diffuseColor.rgb *= col * 1.25;`);
     return ret;
   }
   // street furniture along the sidewalks of a street (or on park paths): one item every 38..70 m on a random side
-  _furnish(B, TP, P, hw, seed, park) {
+  _furnish(B, TP, P, hw, seed, park, key) {
     let acc = hash(seed) * 40, k = 0;
+    // street furniture is solid for cars (player car + traffic): benches / bike racks = two poles along their length, the rest one pole
+    const pole = (x, z, r) => { if (key) this.addPole(key, x, z, r, 1); }, long = (x, z, ax, az, r) => { pole(x + ax * 0.55, z + az * 0.55, r); pole(x - ax * 0.55, z - az * 0.55, r); };
+    const st = (B, T, x, y, z, yaw) => { stamp(B, T, x, y, z, yaw);
+      if (T === TP.bench || T === TP.bikerack) long(x, z, Math.cos(yaw), -Math.sin(yaw), 0.35); else pole(x, z, T === TP.bollard ? 0.14 : T === TP.hydrant ? 0.2 : 0.28); };
     for (let i = 0; i < P.length - 1; i++) {
       const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], l = Math.hypot(dx, dz) || 1; acc += l;
       if (acc < (park ? 55 : 70 / this.propDensity) + hash(seed + k * 3.7) * 50) continue; acc = 0; k++;
       const h = hash(seed * 1.3 + k * 9.1), side = hash(seed + k * 5.9) < 0.5 ? 1 : -1, nx = -dz / l * side, nz = dx / l * side, off = park ? hw + 0.9 : hw + 0.75 + hash(k + seed) * 0.5;
       const x = P[i][0] + nx * off, z = P[i][1] + nz * off, y = this.heightAt(x, z) + 0.12, yaw = Math.atan2(-nx, -nz);   // front faces the road
-      if (park) { stamp(B, TP.bench, x, y - 0.1, z, yaw); if (h > 0.5) stamp(B, TP.bin, x + dx / l * 1.5, y - 0.1, z + dz / l * 1.5, yaw); continue; }
-      if (h < 0.3) stamp(B, TP.bench, x, y, z, yaw); else if (h < 0.5) stamp(B, TP.bin, x, y, z, yaw); else if (h < 0.64) { for (let j = -1; j <= 1; j++) stamp(B, TP.bollard, x + dx / l * j * 1.6, y, z + dz / l * j * 1.6, 0); }
-      else if (h < 0.74) stamp(B, TP.hydrant, x, y, z, yaw); else if (h < 0.82) stamp(B, TP.mailbox, x, y, z, yaw); else if (h < 0.94) stamp(B, TP.bikerack, x, y, z, Math.atan2(dx, dz)); else { stamp(B, TP.bench, x, y, z, yaw); stamp(B, TP.bin, x + dx / l * 1.5, y, z + dz / l * 1.5, yaw); }
+      if (park) { st(B, TP.bench, x, y - 0.1, z, yaw); if (h > 0.5) st(B, TP.bin, x + dx / l * 1.5, y - 0.1, z + dz / l * 1.5, yaw); continue; }
+      if (h < 0.3) st(B, TP.bench, x, y, z, yaw); else if (h < 0.5) st(B, TP.bin, x, y, z, yaw); else if (h < 0.64) { for (let j = -1; j <= 1; j++) st(B, TP.bollard, x + dx / l * j * 1.6, y, z + dz / l * j * 1.6, 0); }
+      else if (h < 0.74) st(B, TP.hydrant, x, y, z, yaw); else if (h < 0.82) st(B, TP.mailbox, x, y, z, yaw); else if (h < 0.94) st(B, TP.bikerack, x, y, z, Math.atan2(dx, dz)); else { st(B, TP.bench, x, y, z, yaw); st(B, TP.bin, x + dx / l * 1.5, y, z + dz / l * 1.5, yaw); }
     }
   }
   _manholes(arr, add) {

@@ -10,7 +10,9 @@
 <meta name="apple-mobile-web-app-title" content="Киев 3D">
 <meta name="theme-color" content="#0b1118">
 <meta name="format-detection" content="telephone=no">
-<link rel="icon" href="data:,">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="manifest" href="assets/manifest.webmanifest">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; background: #9ab; font-family: system-ui, "Segoe UI", Roboto, sans-serif; color: #fff; }
   canvas#view { display: block; width: 100%; height: 100%; }
@@ -61,6 +63,7 @@
   #bClose { display: none; position: fixed; right: calc(14px + var(--sar)); top: calc(14px + var(--sat)); z-index: 8; pointer-events: auto; }
   #rot { display: none; position: fixed; inset: 0; z-index: 20; background: #0b1118; align-items: center; justify-content: center; font-size: 15px; }
   #bigtip { top: calc(10px + var(--sat)); }
+  body.mapopen .svhud, body.mapopen .hl { display: none !important; }   /* the map tip sits where the stats HUD is */
 
   /* ---- HUD declutter (keep the centre of the screen clear) ---- */
   #hud { background: rgba(12,18,26,.4); font-size: 11px; line-height: 1.35; padding: 4px 8px; min-width: 0; opacity: .88; }
@@ -90,7 +93,7 @@
   body.touch #bClose { width: 44px; height: 44px; }
 </style>
 <script type="importmap">
-{"imports": {"three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/", "./js/city.js": "./js/city.js?v=2c11b1df4b", "./js/clock.js": "./js/clock.js?v=2c11b1df4b", "./js/crime.js": "./js/crime.js?v=2c11b1df4b", "./js/dealers.js": "./js/dealers.js?v=2c11b1df4b", "./js/design.js": "./js/design.js?v=2c11b1df4b", "./js/fx.js": "./js/fx.js?v=2c11b1df4b", "./js/game.js": "./js/game.js?v=2c11b1df4b", "./js/interior.js": "./js/interior.js?v=2c11b1df4b", "./js/jobs.js": "./js/jobs.js?v=2c11b1df4b", "./js/main.js": "./js/main.js?v=2c11b1df4b", "./js/menu.js": "./js/menu.js?v=2c11b1df4b", "./js/pois.js": "./js/pois.js?v=2c11b1df4b", "./js/post.js": "./js/post.js?v=2c11b1df4b", "./js/props.js": "./js/props.js?v=2c11b1df4b", "./js/rent.js": "./js/rent.js?v=2c11b1df4b", "./js/rooms.js": "./js/rooms.js?v=2c11b1df4b", "./js/save.js": "./js/save.js?v=2c11b1df4b", "./js/skyfx.js": "./js/skyfx.js?v=2c11b1df4b", "./js/taxi.js": "./js/taxi.js?v=2c11b1df4b", "./js/textures.js": "./js/textures.js?v=2c11b1df4b", "./js/transit.js": "./js/transit.js?v=2c11b1df4b", "./js/ui.js": "./js/ui.js?v=2c11b1df4b", "./js/venues.js": "./js/venues.js?v=2c11b1df4b", "./js/world.js": "./js/world.js?v=2c11b1df4b"}}
+{"imports": {"three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/", "./js/city.js": "./js/city.js?v=e646137a88", "./js/clock.js": "./js/clock.js?v=e646137a88", "./js/crime.js": "./js/crime.js?v=e646137a88", "./js/dealers.js": "./js/dealers.js?v=e646137a88", "./js/design.js": "./js/design.js?v=e646137a88", "./js/fx.js": "./js/fx.js?v=e646137a88", "./js/game.js": "./js/game.js?v=e646137a88", "./js/interior.js": "./js/interior.js?v=e646137a88", "./js/jobs.js": "./js/jobs.js?v=e646137a88", "./js/main.js": "./js/main.js?v=e646137a88", "./js/menu.js": "./js/menu.js?v=e646137a88", "./js/pois.js": "./js/pois.js?v=e646137a88", "./js/post.js": "./js/post.js?v=e646137a88", "./js/props.js": "./js/props.js?v=e646137a88", "./js/rent.js": "./js/rent.js?v=e646137a88", "./js/rooms.js": "./js/rooms.js?v=e646137a88", "./js/save.js": "./js/save.js?v=e646137a88", "./js/skyfx.js": "./js/skyfx.js?v=e646137a88", "./js/taxi.js": "./js/taxi.js?v=e646137a88", "./js/textures.js": "./js/textures.js?v=e646137a88", "./js/transit.js": "./js/transit.js?v=e646137a88", "./js/ui.js": "./js/ui.js?v=e646137a88", "./js/venues.js": "./js/venues.js?v=e646137a88", "./js/world.js": "./js/world.js?v=e646137a88"}}
 </script>
 </head>
 <body>
@@ -121,6 +124,6 @@
   <div id="bar"><i></i></div>
   <p id="go" style="display:none"><b id="gotxt">Кликните, чтобы начать</b><br>Старт — вокзал Киев-Пассажирский (R — вернуться). Данные: © участники OpenStreetMap (ODbL). Здания — экструзия контуров, текстуры процедурные.</p>
 </div>
-<script type="module" src="js/main.js?v=2c11b1df4b"></script>
+<script type="module" src="js/main.js?v=e646137a88"></script>
 </body>
 </html>

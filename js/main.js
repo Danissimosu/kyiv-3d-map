@@ -6,7 +6,7 @@ import { Transit } from './transit.js';
 import { GameClock } from './clock.js';
 import { Dealers } from './dealers.js';
 import { Jobs } from './jobs.js';
-import { UI } from './ui.js';
+import { UI, toast } from './ui.js';
 import { Menu } from './menu.js';
 import { TaxiApp } from './taxi.js';
 import { Rent } from './rent.js';
@@ -148,6 +148,11 @@ async function main() {
     setInterval(() => { if (!paused) autosave('timer'); }, 30000);
     addEventListener('pagehide', () => { if (inGame) autosave('hide'); });
     document.addEventListener('visibilitychange', () => { if (document.hidden && inGame) autosave('hide'); });
+    // iPhone: keep the screen awake while playing (Screen Wake Lock, Safari 16.4+; re-acquired after the app returns), and say what time it is after a long absence
+    let wl = null, hidAt = 0; const wake = async () => { if (!navigator.wakeLock || wl || document.hidden || !inGame || paused) return; try { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); } catch (e) { wl = null; } };
+    addEventListener('pointerdown', () => { wake(); }, { passive: true });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { hidAt = performance.now(); return; } wake();
+      const gone = hidAt ? (performance.now() - hidAt) / 1000 : 0; hidAt = 0; if (inGame && clock.real && gone > 120) toast(`🕒 Вас не было ${gone < 3600 ? Math.round(gone / 60) + ' мин' : (gone / 3600).toFixed(1).replace('.', ',') + ' ч'} — в Киеве уже ${clock.text}`, 4500); });
   }
   const gotoDoor = (pl, dist = 5, yawOff = 0) => { const d = pl.door; P.fly = false; teleport(d.mx + d.nx * dist, d.mz + d.nz * dist, Math.atan2(d.nx, d.nz) + yawOff, 0); P.y = world.heightAt(P.x, P.z); P.eye = P.y + 1.7; world.interiors.forceBuild(P); return pl; };
   const spawn = () => {
@@ -259,7 +264,7 @@ async function main() {
     bctx.font = '13px sans-serif'; LANDMARKS.forEach((l, i) => { const [x, z] = lmXZ(l), [sx, sy] = toS(x, z); bctx.fillStyle = '#c22'; bctx.beginPath(); bctx.arc(sx, sy, 4, 0, 7); bctx.fill(); bctx.lineWidth = 3; bctx.strokeStyle = 'rgba(255,255,255,.85)'; bctx.strokeText(l[0], sx + 7, sy + 4); bctx.fillStyle = '#012'; bctx.fillText(l[0], sx + 7, sy + 4); });
     const [px, py] = toS(P.x, P.z); bctx.fillStyle = '#06f'; bctx.strokeStyle = '#fff'; bctx.lineWidth = 2; bctx.beginPath(); bctx.arc(px, py, 6, 0, 7); bctx.fill(); bctx.stroke();
   }
-  function toggleMap() { $('bClose').style.display = !mapOpen ? 'flex' : 'none'; mapOpen = !mapOpen; $('big').style.display = $('bigtip').style.display = mapOpen ? 'block' : 'none'; if (mapOpen) { BV.cx = P.x; BV.cz = P.z; BV.k = Math.max(BV.k, 0.04); $('bigtip').textContent = 'Карта: перетащить — сдвиг · щипок/колесо — масштаб · тап — телепорт · M / Esc — закрыть'; if (document.pointerLockElement) document.exitPointerLock(); drawBig(); } }
+  function toggleMap() { $('bClose').style.display = !mapOpen ? 'flex' : 'none'; mapOpen = !mapOpen; document.body.classList.toggle('mapopen', mapOpen); $('big').style.display = $('bigtip').style.display = mapOpen ? 'block' : 'none'; if (mapOpen) { BV.cx = P.x; BV.cz = P.z; BV.k = Math.max(BV.k, 0.04); $('bigtip').textContent = 'Карта: перетащить — сдвиг · щипок/колесо — масштаб · тап — телепорт · M / Esc — закрыть'; if (document.pointerLockElement) document.exitPointerLock(); drawBig(); } }
   { // big map: drag = pan, wheel / pinch = zoom, tap = teleport
     bigcv.style.touchAction = 'none'; const ptrs = new Map(); let moved = 0, pinch0 = 0, k0 = 0;
     const world2 = (sx, sy) => [BV.cx + (sx - BV.w / 2) / BV.k, BV.cz + (sy - BV.h / 2) / BV.k];

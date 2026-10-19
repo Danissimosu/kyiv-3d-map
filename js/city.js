@@ -37,28 +37,30 @@ export function venuePed(I, p, sp, staff) {
   return { inside: true, plan: p, I, x: sp.x, z: sp.z, y: sp.y, yaw: sp.yaw || 0, phase: Math.random() * 6.28, shirt: staff ? uni[0] : pick(SHIRT), pants: staff ? uni[1] : pick(PANTS), state: 'idle', hp: 3, path: { tile: p.key }, scale: rnd(0.92, 1.05), t: 0, staff: !!staff, spot: null, wait: rnd(4, 14), moving: 0, venue: true };
 }
 
-function humanoidGeometry() {
+function humanoidGeometry() {   // low-poly rounded figure (~420 tris): ellipsoid head, tapered torso / limbs, round hands; part ids drive tint + animation in the shader
   const parts = [];
-  const add = (w, h, d, x, y, z, id, pivot, col) => {
-    const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z);
+  const push = (g, id, pivot, col) => {
     const n = g.attributes.position.count, pa = new Float32Array(n * 2), ca = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { pa[2 * i] = id; pa[2 * i + 1] = pivot; ca[3 * i] = col[0]; ca[3 * i + 1] = col[1]; ca[3 * i + 2] = col[2]; }
-    g.setAttribute('aPart', new THREE.BufferAttribute(pa, 2)); g.setAttribute('color', new THREE.BufferAttribute(ca, 3)); g.deleteAttribute('uv'); parts.push(g);
+    g.setAttribute('aPart', new THREE.BufferAttribute(pa, 2)); g.setAttribute('color', new THREE.BufferAttribute(ca, 3)); if (g.attributes.uv) g.deleteAttribute('uv'); parts.push(g);
   };
-  const skin = [0.86, 0.68, 0.55], w = [1, 1, 1];
-  add(0.22, 0.24, 0.22, 0, 1.64, 0, 0, 0, skin);               // head
-  add(0.42, 0.58, 0.24, 0, 1.2, 0, 1, 0, w);                    // torso (shirt tint)
-  add(0.11, 0.55, 0.12, -0.27, 1.2, 0, 2, 1.46, w);             // arms (shirt tint), pivot at the shoulder
-  add(0.11, 0.55, 0.12, 0.27, 1.2, 0, 3, 1.46, w);
-  add(0.16, 0.86, 0.17, -0.1, 0.43, 0, 4, 0.88, [0.9, 0.9, 0.9]); // legs (trouser tint), pivot at the hip
-  add(0.16, 0.86, 0.17, 0.1, 0.43, 0, 5, 0.88, [0.9, 0.9, 0.9]);
-  const hair = [0.16 + Math.random() * 0 , 0.11, 0.08];
-  add(0.24, 0.1, 0.24, 0, 1.78, -0.01, 0, 0, hair); add(0.24, 0.2, 0.06, 0, 1.69, -0.09, 0, 0, hair);   // hair cap + back
-  add(0.08, 0.06, 0.08, 0, 1.49, 0, 0, 0, skin);                                                         // neck
-  add(0.44, 0.06, 0.26, 0, 0.93, 0, 1, 0, [0.15, 0.13, 0.12]);                                         // belt / hips (trouser tint, dark)
-  add(0.12, 0.1, 0.13, -0.27, 0.88, 0.0, 6, 1.46, skin); add(0.12, 0.1, 0.13, 0.27, 0.88, 0.0, 7, 1.46, skin);   // hands
-  add(0.17, 0.09, 0.27, -0.1, 0.045, 0.05, 8, 0.88, [0.12, 0.11, 0.11]); add(0.17, 0.09, 0.27, 0.1, 0.045, 0.05, 9, 0.88, [0.12, 0.11, 0.11]);   // shoes
-  add(0.3, 0.34, 0.12, 0, 1.2, -0.18, 1, 0, [0.55, 0.55, 0.55]);                                        // backpack (shirt-tinted, darker)
+  const add = (w, h, d, x, y, z, id, pivot, col) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); push(g, id, pivot, col); };
+  const cyl = (rt, rb, h, x, y, z, id, pivot, col, seg = 7, sx = 1, sz = 1) => { const g = new THREE.CylinderGeometry(rt, rb, h, seg, 1); g.scale(sx, 1, sz); g.translate(x, y, z); push(g, id, pivot, col); };
+  const ell = (rx, ry, rz, x, y, z, id, pivot, col, ws = 8, hs = 6, th = Math.PI) => { const g = new THREE.SphereGeometry(1, ws, hs, 0, Math.PI * 2, 0, th); g.scale(rx, ry, rz); g.translate(x, y, z); push(g, id, pivot, col); };
+  const skin = [0.8, 0.6, 0.47], w = [1, 1, 1], tr = [0.9, 0.9, 0.9], hair = [0.16, 0.11, 0.08], shoe = [0.12, 0.11, 0.11];
+  ell(0.105, 0.128, 0.115, 0, 1.655, 0.005, 0, 0, skin);                               // head
+  ell(0.112, 0.07, 0.122, 0, 1.715, -0.01, 10, 0, hair, 8, 4, Math.PI * 0.55);          // hair cap (own id: per-person hair shade)
+  ell(0.1, 0.1, 0.05, 0, 1.64, -0.075, 10, 0, hair, 7, 4);                             // hair back
+  cyl(0.045, 0.05, 0.12, 0, 1.5, 0, 0, 0, skin, 6);                                    // neck
+  cyl(0.215, 0.17, 0.56, 0, 1.2, 0, 1, 0, w, 9, 1, 0.58);                              // torso: wide shoulders, narrower waist
+  ell(0.215, 0.07, 0.125, 0, 1.475, 0, 1, 0, w, 9, 3, Math.PI / 2);                     // rounded shoulders
+  cyl(0.058, 0.046, 0.55, -0.265, 1.2, 0, 2, 1.46, w, 6); cyl(0.058, 0.046, 0.55, 0.265, 1.2, 0, 3, 1.46, w, 6);     // arms (shirt), pivot at the shoulder
+  cyl(0.18, 0.19, 0.1, 0, 0.93, 0, 1, 0, [0.15, 0.13, 0.12], 9, 1, 0.62);              // belt / hips (dark)
+  cyl(0.088, 0.062, 0.86, -0.095, 0.47, 0, 4, 0.88, tr, 7); cyl(0.088, 0.062, 0.86, 0.095, 0.47, 0, 5, 0.88, tr, 7);  // legs (trousers), pivot at the hip
+  ell(0.05, 0.06, 0.05, -0.265, 0.89, 0, 6, 1.46, skin, 5, 3); ell(0.05, 0.06, 0.05, 0.265, 0.89, 0, 7, 1.46, skin, 5, 3);   // hands
+  const shoeG = x => { const g = new THREE.SphereGeometry(1, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2); g.scale(0.07, 0.085, 0.14); g.translate(x, 0.0, 0.04); return g; };
+  push(shoeG(-0.095), 8, 0.88, shoe); push(shoeG(0.095), 9, 0.88, shoe);                // shoes
+  add(0.28, 0.32, 0.11, 0, 1.22, -0.165, 1, 0, [0.55, 0.55, 0.55]);                     // backpack (shirt-tinted, darker)
   const m = parts[0]; const merged = new THREE.BufferGeometry();
   for (const k of ['position', 'normal', 'aPart', 'color']) { const arrs = parts.map(g => g.attributes[k]); const sz = arrs[0].itemSize; const tot = arrs.reduce((s, a) => s + a.count, 0); const out = new Float32Array(tot * sz); let o = 0; for (const a of arrs) { out.set(a.array, o); o += a.array.length; } merged.setAttribute(k, new THREE.BufferAttribute(out, sz)); }
   let off = 0; const idx = []; for (const g of parts) { for (const i of g.index.array) idx.push(i + off); off += g.attributes.position.count; } merged.setIndex(idx);
@@ -114,9 +116,11 @@ export class City {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 aPart; attribute vec4 aAnim; attribute vec3 aShirt; attribute vec3 aPants; uniform float uTime;')
         .replace('#include <color_vertex>', `#include <color_vertex>
           float pid = aPart.x;
-          if (pid > 0.5 && pid < 3.5) vColor.rgb *= aShirt; else if (pid > 3.5 && pid < 5.5) vColor.rgb *= aPants;`)
+          if (pid > 0.5 && pid < 3.5) vColor.rgb *= aShirt; else if (pid > 3.5 && pid < 5.5) vColor.rgb *= aPants;
+          else if (pid > 9.5) { float hh = fract(sin(aAnim.x * 91.7) * 437.5); vColor.rgb = hh < 0.16 ? vec3(0.6, 0.48, 0.3) : hh < 0.26 ? vec3(0.42, 0.19, 0.09) : hh < 0.38 ? vec3(0.52, 0.52, 0.5) : hh < 0.7 ? vec3(0.19, 0.12, 0.07) : vec3(0.07, 0.055, 0.045); }   // blond / red / grey / brown / black
+          else if (pid < 0.5 || (pid > 5.5 && pid < 7.5)) vColor.rgb *= 0.84 + 0.24 * fract(sin(aAnim.x * 53.1) * 917.3);   // skin tone`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
-          if (aAnim.y > 0.0 && pid > 1.5) {
+          if (aAnim.y > 0.0 && pid > 1.5 && pid < 9.5) {
             float sgn = (pid == 2.0 || pid == 5.0 || pid == 6.0 || pid == 8.0) ? 1.0 : -1.0;
             float a = sin(uTime * aAnim.y + aAnim.x) * ((pid > 3.5 && pid < 5.5 || pid > 7.5) ? 0.62 : 0.5) * sgn * aAnim.z;
             float c = cos(a), s = sin(a), py = aPart.y;
@@ -124,7 +128,7 @@ export class City {
             transformed.y = py + yy * c - zz * s; transformed.z = yy * s + zz * c;
           }
           if (aAnim.w > 0.5) {   // poses of venue NPCs: 1 = sitting (legs forward, forearms on the table), 2 = working at a counter (hands busy)
-            bool leg = (pid > 3.5 && pid < 5.5) || pid > 7.5, arm = (pid > 1.5 && pid < 3.5) || (pid > 5.5 && pid < 7.5);
+            bool leg = (pid > 3.5 && pid < 5.5) || (pid > 7.5 && pid < 9.5), arm = (pid > 1.5 && pid < 3.5) || (pid > 5.5 && pid < 7.5);
             float a = 0.0;
             if (aAnim.w < 1.5) a = leg ? -1.5 : arm ? -0.55 : 0.0;
             else if (arm) a = -0.8 + 0.16 * sin(uTime * 4.0 + aAnim.x + pid * 1.7);
@@ -492,9 +496,9 @@ export class City {
     for (const r of sol) { const i0 = Math.max(0, Math.floor((r[0] - m - u0) / cs)), i1 = Math.min(gw - 1, Math.floor((r[1] + m - u0) / cs)), j0 = Math.max(0, Math.floor((r[2] - m - v0) / cs)), j1 = Math.min(gh - 1, Math.floor((r[3] + m - v0) / cs));
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const u = u0 + (i + 0.5) * cs, v = v0 + (j + 0.5) * cs; if (u > r[0] - m && u < r[1] + m && v > r[2] - m && v < r[3] + m) blk[j * gw + i] = 1; } }
     if (I.pieces) for (const pc of I.pieces) { if (pc.l) continue;   // partition walls of multi-room interiors: rasterise (doorways stay open)
-      const L = Math.hypot(pc.x2 - pc.x1, pc.z2 - pc.z1), n = Math.max(1, Math.ceil(L / (cs * 0.5))), rr = Math.ceil(0.17 / cs) + 1;
+      const L = Math.hypot(pc.x2 - pc.x1, pc.z2 - pc.z1), n = Math.max(1, Math.ceil(L / (cs * 0.5))), wr = Math.max(0.17, cs * 0.5 + 0.03), rr = Math.ceil(wr / cs) + 1;
       for (let k = 0; k <= n; k++) { const x = pc.x1 + (pc.x2 - pc.x1) * k / n, z = pc.z1 + (pc.z2 - pc.z1) * k / n, w = I.uvOf(x, z), ci = Math.floor((w[0] - u0) / cs), cj = Math.floor((w[1] - v0) / cs);
-        for (let j = cj - rr; j <= cj + rr; j++) for (let i = ci - rr; i <= ci + rr; i++) { if (i < 0 || j < 0 || i >= gw || j >= gh) continue; const q = I.toXZ(u0 + (i + 0.5) * cs, v0 + (j + 0.5) * cs); if (sd(q[0], q[1], pc.x1, pc.z1, pc.x2, pc.z2) < 0.17) blk[j * gw + i] = 1; } } }
+        for (let j = cj - rr; j <= cj + rr; j++) for (let i = ci - rr; i <= ci + rr; i++) { if (i < 0 || j < 0 || i >= gw || j >= gh) continue; const q = I.toXZ(u0 + (i + 0.5) * cs, v0 + (j + 0.5) * cs); if (sd(q[0], q[1], pc.x1, pc.z1, pc.x2, pc.z2) < wr) blk[j * gw + i] = 1; } } }
     const F = { u0, v0, cs, gw, gh, blk, dist: new Uint16Array(N).fill(65535) };
     const d = I.uvOf(I.inPt[0], I.inPt[1]), c0 = this._freeCell(F, d[0], d[1], 6); if (c0 < 0) return null;
     const qu = new Int32Array(N); let h = 0, t = 0; qu[t++] = c0; F.dist[c0] = 0;
