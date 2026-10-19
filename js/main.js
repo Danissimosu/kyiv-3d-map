@@ -386,7 +386,7 @@ async function main() {
       if (have >= need.length) { spawn(); updateHud(); if (menu) menu.show('main'); $('msg').textContent = 'Готово'; $('go').style.display = 'block'; $('bar').style.display = 'none'; if (qs.has('autostart')) { started = true; $('overlay').style.display = 'none'; } }
     } else if (started || qs.has('autostart') || true) {
       if (P.wait) { const tt = world.tiles.get(Math.floor(P.x / 500) + '_' + Math.floor(P.z / 500)); if (tt && tt.h) { P.wait = false; const g0 = world.heightAt(P.x, P.z); P.y = P.restoreY !== undefined ? P.restoreY : Math.max(world.groundAt(P.x, P.z, g0 + 300), g0) + (P.fly ? 1.7 : 3); P.restoreY = undefined; P.eye = P.y + 1.7; } }
-      else if (started && !paused && !mapOpen && !UI.modal && !game.dead && !crime.driving && !transit.busy && !taxiApp.busy) physics(dt);
+      else if (started && !paused && !mapOpen && !UI.modal && !game.dead && !crime.driving && !transit.busy && !taxiApp.busy && !game.sitting) physics(dt);
     }
     const bob = 0; const targetEye = P.y + EYE; P.eye += (targetEye - P.eye) * Math.min(1, dt * (P.grounded ? 18 : 40)); if (P.fly) P.eye = targetEye;
     camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch + (P.wob ? P.wob.p : 0), P.yaw + (P.wob ? P.wob.y : 0), P.wob ? P.wob.r : 0);

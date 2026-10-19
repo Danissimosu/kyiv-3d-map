@@ -42,9 +42,9 @@ const SLOTS = 20, STACK = 10;
 export class Game {
   constructor(ctx) {
     this.ctx = ctx; const { P, world, scene, pois } = ctx; this.P = P; this.world = world; this.pois = pois; this.scene = scene;
-    this.decay = parseFloat(ctx.qs.get('decay') || '1'); this.providers = []; this.dead = false; this.shift = null; this.act = null; this.t = 0; this.dirty = 0; this.saveT = 0;
+    this.decay = parseFloat(ctx.qs.get('decay') || '1'); this.providers = []; this.sitting = null; this.dead = false; this.shift = null; this.act = null; this.t = 0; this.dirty = 0; this.saveT = 0;
     this.S = this._load(); this.minVy = 0; this.lastPos = [P.x, P.z];
-    this._ui(); this._pads(); this.refresh();
+    this._ui(); this._pads(); this.addProvider(P => this._benchProvider(P)); this.refresh();
     addEventListener('keydown', e => {
       if (e.repeat) return;
       if (e.code === 'Escape') { for (const p of [this.invP, this.phoneP, this.shopP, this.jobP, pois.panel]) p.close(); return; }
@@ -177,6 +177,22 @@ export class Game {
   }
   // ---------------------------------------------------------------- actions
   addProvider(fn) { this.providers.push(fn); }
+  // sit on a street bench: rest (⚡ recovers), E / stick to stand up
+  _benchProvider(P) {
+    if (this.sitting || this.crime && (this.crime.driving || this.crime.jail) || this.transit && this.transit.busy) return null;
+    const b = this.world.nearestBench(P.x, P.z, 2.1); if (!b) return null;
+    return { label: '🪑 Сесть', run: () => this.sit(b) };
+  }
+  sit(b) {
+    if (this.sitting) return; const P = this.P;
+    P.x = b.x + Math.sin(b.yaw) * 0.15; P.z = b.z + Math.cos(b.yaw) * 0.15; P.vx = P.vz = P.vy = 0;
+    P.y = (b.y !== undefined ? b.y : this.world.heightAt(P.x, P.z)) + 0.42; P.eye = P.y + 1.15; P.yaw = b.yaw + Math.PI; P.pitch = -0.08;
+    this.sitting = { b, t0: this.t }; toast('🪑 Отдыхаете на скамейке — ⚡ восстанавливается. E — встать', 3200);
+  }
+  stand() {
+    if (!this.sitting) return; const P = this.P; this.sitting = null;
+    P.y = this.world.heightAt(P.x, P.z) + 0.05; P.eye = P.y + 1.7; P.pitch = 0; toast('Встали');
+  }
   _poiAction() {
     const { P, world } = this; let best = null, bd = 2.6; let used = 0;
     for (const [pl, I] of world.interiors.active) {
@@ -191,7 +207,7 @@ export class Game {
     if (best.cat.svc === 'job') return { label: `${JOBS[best.key].title} — ${best.name}`, run: () => this.openJob(best) };
     return null;
   }
-  doAction() { if (this.act && !UI.modal) this.act.run(); }
+  doAction() { if (UI.modal) return; if (this.sitting) { this.stand(); return; } if (this.act) this.act.run(); }
   openShop(poi) {
     if (!isOpen(poi.key, this.ctx.clock.hour)) { const o = HOURS[poi.key]; this.shopP.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; this.shopP.body.innerHTML = `<p style="font-size:16px">🔒 Закрыто. Работает ${hhmm(o[0] * 60)}–${hhmm(o[1] * 60)}. Сейчас ${this.ctx.clock.text}.</p>`; this._vacancies(poi, this.shopP.body, this.shopP); this.shopP.open(); return; }
     const p = this.shopP; p.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; const b = p.body; const draw = () => {
@@ -255,6 +271,18 @@ export class Game {
     else if (S.hp < 100 && S.food > 40 && S.water > 40) S.hp = Math.min(100, S.hp + d * 0.4);
     if (S.food < 20 && !this._lf) { this._lf = 1; const n = this._needMark('food'); toast(n ? `🍖 Голод: ближайшее — ${n.cat.icon} ${n.name} (метка)` : '🍖 Голод: найдите еду'); } if (S.food > 30) this._lf = 0;
     if (S.water < 20 && !this._lw) { this._lw = 1; const n = this._needMark('shop'); toast(n ? `💧 Жажда: ближайшее — ${n.cat.icon} ${n.name} (метка)` : '💧 Жажда: найдите воду'); } if (S.water > 30) this._lw = 0;
+    // sitting on a bench: recover energy, keep pose, offer stand-up
+    if (this.sitting) {
+      S.en = Math.min(100, (S.en ?? 85) + dt * 0.12); P.vx = P.vz = P.vy = 0; P.eye = P.y + 1.15;  // rest regen ignores ?decay=0 (tests) and is faster than idle drain
+      this.act = { label: 'Встать', run: () => this.stand() }; this.actEl.style.display = 'block'; this.actEl.textContent = (this.ctx.IS_TOUCH ? '' : 'E — ') + 'Встать';
+      this.bAct.style.display = this.ctx.IS_TOUCH ? 'flex' : 'none'; this.dirty = 1; this.refresh(); return;
+    }
+    // exhausted + have a rented home → soft mark home for sleep
+    if (S.en < 12 && S.home && this.rent && !this.pois.track && !this._he) {
+      this._he = 1; const hx = S.home.bx, hz = S.home.bz;
+      if (hx != null) { const fake = { x: hx, z: hz, name: 'Ваш дом', cat: { icon: '🏠' }, brand: 0xffd966 }; this.pois.setTrack(fake, true); toast('⚡ Вымотались — метка на ваш дом (спать в кровати)', 3600); }
+    }
+    if (S.en > 25) this._he = 0;
     this.dirty = 1;
     // action providers (throttled)
     if (((this.fr = (this.fr || 0) + 1) % 4) === 0) {

@@ -51,7 +51,7 @@ function triangulate(ring, holes) {
 export class World {
   constructor(scene, manifest, opts = {}) {
     this.scene = scene; this.man = manifest; this.tiles = new Map(); this.TILE = manifest.tile; this.NG = manifest.ng; this.GRID = manifest.grid;
-    this.cells = new Map(); this.poles = new Map(); this.loading = new Set(); this.ready = []; this.loadR = opts.loadR || 1500; this.unloadR = opts.unloadR || 2300;
+    this.cells = new Map(); this.poles = new Map(); this.benches = new Map(); this.loading = new Set(); this.ready = []; this.loadR = opts.loadR || 1500; this.unloadR = opts.unloadR || 2300;
     this.detailR = opts.detailR || 600; this.shadows = opts.shadows !== false; this.treeKeep = opts.treeKeep ?? 1; this.curbs = opts.curbs !== false; this.props = opts.props !== false; this.propDensity = opts.propDensity ?? 1; this.lampKeep = opts.lampKeep ?? 1;
     this.facadeTex = makeFacadeTextures();
     const PBR = opts.pbr !== false, ns = opts.normalScale ?? 1.0;
@@ -155,7 +155,10 @@ export class World {
   }
   // ---- vehicle-only point obstacles (tree trunks, lamp posts, stop shelters): {x,z,r,tile}; cells of PC metres
   addPole(tileKey, x, z, r, f) { const k = Math.floor(x / 16) + ',' + Math.floor(z / 16); let a = this.poles.get(k); if (!a) { a = []; this.poles.set(k, a); } a.push(f ? { x, z, r, tile: tileKey, f } : { x, z, r, tile: tileKey }); if (tileKey !== '*') { const t = this.tiles.get(tileKey); if (t) (t.poleKeys || (t.poleKeys = new Set())).add(k); } }
-  dropPoles(t, key) { if (!t.poleKeys) return; for (const k of t.poleKeys) { const a = this.poles.get(k); if (!a) continue; const b = a.filter(o => o.tile !== key); if (b.length) this.poles.set(k, b); else this.poles.delete(k); } t.poleKeys = null; }
+  dropPoles(t, key) { if (!t.poleKeys) return; for (const k of t.poleKeys) { const a = this.poles.get(k); if (!a) continue; const b = a.filter(o => o.tile !== key); if (b.length) this.poles.set(k, b); else this.poles.delete(k); } t.poleKeys = null; if (this.benches) this.benches.delete(key); }
+  nearestBench(x, z, r = 2.2) {
+    let best = null, bd = r; for (const a of this.benches.values()) for (const b of a) { const d = Math.hypot(b.x - x, b.z - z); if (d < bd) { bd = d; best = b; } } return best;
+  }
   collideCar(p, r, skipF) {   // pushes p out of poles; returns the push distance (0 = free). skipF: ignore sidewalk furniture (NPC traffic); player still hits all.
     let tot = 0;
     for (let cx = Math.floor((p.x - r - 1) / 16); cx <= Math.floor((p.x + r + 1) / 16); cx++) for (let cz = Math.floor((p.z - r - 1) / 16); cz <= Math.floor((p.z + r + 1) / 16); cz++) {
@@ -751,7 +754,8 @@ diffuseColor.rgb *= col * 1.25;`);
     // street furniture is solid for cars (player car + traffic): benches / bike racks = two poles along their length, the rest one pole
     const pole = (x, z, r) => { if (key) this.addPole(key, x, z, r, 1); }, long = (x, z, ax, az, r) => { pole(x + ax * 0.55, z + az * 0.55, r); pole(x - ax * 0.55, z - az * 0.55, r); };
     const st = (B, T, x, y, z, yaw) => { stamp(B, T, x, y, z, yaw);
-      if (T === TP.bench || T === TP.bikerack) long(x, z, Math.cos(yaw), -Math.sin(yaw), 0.35); else pole(x, z, T === TP.bollard ? 0.14 : T === TP.hydrant ? 0.2 : 0.28); };
+      if (T === TP.bench || T === TP.bikerack) long(x, z, Math.cos(yaw), -Math.sin(yaw), 0.35); else pole(x, z, T === TP.bollard ? 0.14 : T === TP.hydrant ? 0.2 : 0.28);
+      if (T === TP.bench && key) { let a = this.benches.get(key); if (!a) this.benches.set(key, a = []); a.push({ x, z, yaw, y }); } };
     for (let i = 0; i < P.length - 1; i++) {
       const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], l = Math.hypot(dx, dz) || 1; acc += l;
       if (acc < (park ? 55 : 70 / this.propDensity) + hash(seed + k * 3.7) * 50) continue; acc = 0; k++;
