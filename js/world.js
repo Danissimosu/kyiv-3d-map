@@ -156,11 +156,11 @@ export class World {
   // ---- vehicle-only point obstacles (tree trunks, lamp posts, stop shelters): {x,z,r,tile}; cells of PC metres
   addPole(tileKey, x, z, r, f) { const k = Math.floor(x / 16) + ',' + Math.floor(z / 16); let a = this.poles.get(k); if (!a) { a = []; this.poles.set(k, a); } a.push(f ? { x, z, r, tile: tileKey, f } : { x, z, r, tile: tileKey }); if (tileKey !== '*') { const t = this.tiles.get(tileKey); if (t) (t.poleKeys || (t.poleKeys = new Set())).add(k); } }
   dropPoles(t, key) { if (!t.poleKeys) return; for (const k of t.poleKeys) { const a = this.poles.get(k); if (!a) continue; const b = a.filter(o => o.tile !== key); if (b.length) this.poles.set(k, b); else this.poles.delete(k); } t.poleKeys = null; }
-  collideCar(p, r) {   // pushes p out of poles; returns the push distance (0 = free)
+  collideCar(p, r, skipF) {   // pushes p out of poles; returns the push distance (0 = free). skipF: ignore sidewalk furniture (NPC traffic); player still hits all.
     let tot = 0;
     for (let cx = Math.floor((p.x - r - 1) / 16); cx <= Math.floor((p.x + r + 1) / 16); cx++) for (let cz = Math.floor((p.z - r - 1) / 16); cz <= Math.floor((p.z + r + 1) / 16); cz++) {
       const a = this.poles.get(cx + ',' + cz); if (!a) continue;
-      for (const o of a) { const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz, rr = r + o.r; if (d2 < rr * rr) { const d = Math.sqrt(d2) || 1e-3; p.x += dx / d * (rr - d); p.z += dz / d * (rr - d); tot += rr - d; } }
+      for (const o of a) { if (skipF && o.f) continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz, rr = r + o.r; if (d2 < rr * rr) { const d = Math.sqrt(d2) || 1e-3; p.x += dx / d * (rr - d); p.z += dz / d * (rr - d); tot += rr - d; } }
     }
     return tot;
   }

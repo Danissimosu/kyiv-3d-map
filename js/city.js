@@ -285,7 +285,7 @@ export class City {
   }
   _spawnOK(c) {   // no overlap with other cars, buildings, trunks, lamps, shelters
     if (this.overlapAt(c.x, c.z, c.yaw, c)) return false;
-    for (const k of [-1.4, 0, 1.4]) { const q = { x: c.x + Math.sin(c.yaw) * k, z: c.z + Math.cos(c.yaw) * k }, x0 = q.x, z0 = q.z; this.world.collide(q, 0.95, c.y, 1.3); const pp = this.world.collideCar(q, 0.95); if (Math.hypot(q.x - x0, q.z - z0) + pp > 0.05) return false; }
+    for (const k of [-1.4, 0, 1.4]) { const q = { x: c.x + Math.sin(c.yaw) * k, z: c.z + Math.cos(c.yaw) * k }, x0 = q.x, z0 = q.z; this.world.collide(q, 0.95, c.y, 1.3); const pp = this.world.collideCar(q, 0.95, true); if (Math.hypot(q.x - x0, q.z - z0) + pp > 0.05) return false; }
     return true;
   }
   compOf(path) {   // connected component of the (junction-endpoint) road graph, cached per graph version
@@ -631,7 +631,7 @@ export class City {
       else { const gap = this._ahead(c, 5 + c.speed * 1.5); if (gap < 1e8) { const tg = gap < 0.8 ? 0 : Math.sqrt(2 * 6 * (gap - 0.6)); if (tg < target) { target = tg; if (tg < 0.3) c.why = c.blocker ? 'car' : 'ped'; } } }
       // fixed obstacles (walls / trunks / lamp posts / shelters) 3.5 m ahead, sampled 4 Hz per car
       c.obsT = (c.obsT || Math.random() * 0.25) - dt;
-      if (c.obsT <= 0) { c.obsT = 0.25; const q = { x: c.x + Math.sin(c.yaw) * (3.6 + c.speed * 0.25), z: c.z + Math.cos(c.yaw) * (3.6 + c.speed * 0.25) }, q0 = { x: q.x, z: q.z }; const pp = this.world.collideCar(q, 0.8); c.obs = pp > 0.1; if (c.obs) c.obsN = (c.obsN || 0) + 1; else c.obsN = 0; }
+      if (c.obsT <= 0) { c.obsT = 0.25; const q = { x: c.x + Math.sin(c.yaw) * (3.6 + c.speed * 0.25), z: c.z + Math.cos(c.yaw) * (3.6 + c.speed * 0.25) }, q0 = { x: q.x, z: q.z }; const pp = this.world.collideCar(q, 0.8, true); c.obs = pp > 0.1; if (c.obs) c.obsN = (c.obsN || 0) + 1; else c.obsN = 0; }
       if (c.obs && !(c.obsN > 32)) { target = 0; c.why = 'obs'; }   // 8 s blocked by a lamp / trunk the road graph passes -> squeeze by
       const distEnd = c.dir > 0 ? p.len - c.s : c.s;
       if (c.wait > 0) { c.wait -= dt; target = 0; }

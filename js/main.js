@@ -365,6 +365,8 @@ async function main() {
   const lookTmp = new THREE.Vector3();
   function frame(now) {
     requestAnimationFrame(frame);
+    // iPhone/Safari: while the tab / PWA is in the background, skip sim + GPU (rAF is throttled anyway; avoids heat/battery drain)
+    if (document.hidden) { last = now; return; }
     const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
     governor(raw); frames++; tacc += raw; if (tacc > 0.5) { fps = frames / tacc; frames = 0; tacc = 0; updateHud(); }
     const before = world.tiles.size;
