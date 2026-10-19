@@ -519,8 +519,9 @@ Object.assign(Transit.prototype, {
   fillPhone(div) {
     div.innerHTML = ''; const P = this.P; el('div', '', `<small style="opacity:.7">🕒 ${fmt(this.cT)} · ${this.day === 'we' ? 'выходной' : 'будни'}</small>`, div);
     const arr = this.stops.map(s => [Math.hypot(s.x - P.x, s.z - P.z), s]).sort((a, b) => a[0] - b[0]).slice(0, 4);
-    for (const [d, s] of arr) { const deps = this.nextDeps(s, 4, 120);
+    let any = false; for (const [d, s] of arr) { const deps = this.nextDeps(s, 4, 120); if (deps.length) any = true;
       el('div', 'row', `<div class="t"><b>🚏 ${s.name}</b><small>${Math.round(d)} м · ${deps.length ? deps.map(x => `${x.ro.n} ${x.dm < 1 ? 'сейчас' : Math.round(x.dm) + ' мин'}`).join(' · ') : 'нет рейсов в ближайшие 2 ч'}</small></div>`, div); }
+    if (!any && arr.length) { const h = this.cT / 3600 % 24; if (h >= 23 || h < 6) el('div', '', `<small style="opacity:.85">🌙 Ночью городской транспорт не ходит (первые рейсы ~5:30–6:00). Доехать можно на такси: 📱 → 🚕 Такси.</small>`, div); }
   },
   // ---------------------------------------------------------------- driver job (arcade): follow the real route, stop at the real stops
   startDriving(poi) {
