@@ -90,7 +90,7 @@ export class Jobs {
   // ---------------------------------------------------------------- HUD (one small line at the top edge; buttons for lunch break and quit)
   _hud() {
     const T = this.ctx.IS_TOUCH, h = this.hud = el('div', '', '', document.body); h.className = 'hl';
-    h.style.cssText = `position:fixed;left:50%;transform:translateX(-50%);top:calc(${T ? 58 : 36}px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(14,40,28,.78);color:#fff;font:600 ${T ? 11 : 13}px -apple-system,system-ui,sans-serif;padding:3px 8px;border-radius:12px;max-width:${T ? 74 : 62}vw;pointer-events:none;text-align:center;line-height:1.25`;
+    h.style.cssText = `position:fixed;left:50%;transform:translateX(-50%);top:calc(${T ? 99 : 36}px + env(safe-area-inset-top));z-index:6;display:none;background:rgba(14,40,28,.78);color:#fff;font:600 ${T ? 11 : 13}px -apple-system,system-ui,sans-serif;padding:3px 8px;border-radius:12px;max-width:${T ? 74 : 62}vw;pointer-events:none;text-align:center;line-height:1.25`;
     this.hT = el('div', '', '', h); this.hS = el('div', '', '', h); this.hS.style.cssText = 'font-weight:500;opacity:.85;font-size:0.92em'; const bar = el('div', '', '<i style="display:block;height:100%;width:0;background:#ffd966"></i>', h); bar.style.cssText = 'height:3px;background:rgba(255,255,255,.2);border-radius:2px;margin-top:2px;overflow:hidden;display:none'; this.hB = bar;
     const bs = el('div', '', '', h); bs.style.cssText = 'display:flex;gap:6px;justify-content:center;margin-top:3px;pointer-events:auto';
     const mkb = (t, fn) => { const b = el('span', '', t, bs); b.style.cssText = `padding:${T ? '5px 12px' : '2px 9px'};background:rgba(255,255,255,.2);border-radius:10px;font-size:${T ? 12 : 12}px`; tap(b, fn); return b; };

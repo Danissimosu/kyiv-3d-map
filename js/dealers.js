@@ -100,7 +100,8 @@ export class Dealers {
   update(P, dt) {
     if (this.off) return; this.t += dt; this._effects(P, dt); if (UI.modal && !this.buyP.isOpen) return;
     const night = this.isNight, nid = this.nightId();
-    if (this._wasNight && !night) toast('🌅 Рассвет в Киеве — ночные точки закрылись до 22:00', 3500);
+    if (this._wasNight && !night && this.clock.hour >= 5 && this.clock.hour < 6) toast('🌅 Рассвет в Киеве — ночные точки закрылись до 22:00', 3500);
+    if (this._wasNight === false && night && Math.floor(this.clock.hour) === 22) toast('🌙 22:00 — во дворах, парках и у метро появились ночные «точки». Осторожно: патрули', 4500);
     this._wasNight = night;
     if ((this.scanT += dt) > 1.2) { this.scanT = 0; this._scan(P, night, nid); }
     for (const d of this.active.values()) this._dealerStep(d, P, dt);
