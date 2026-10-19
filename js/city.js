@@ -3,6 +3,7 @@
 // people inside active interiors, instanced cars lane-following the road polylines, and distant traffic as moving light points.
 import * as THREE from 'three';
 import { CarFleet, CAR_MODELS, pickCarModel } from './design.js';
+import { isOpen, crowd, STAFF_K, CUST_K } from './venues.js';
 
 const CLS_SPEED = [0, 5, 8.5, 11, 14, 17, 21];            // m/s by road class (0 = footway ... 6 = motorway/trunk)
 const CLS_DENS = [0, 7, 13, 22, 30, 40, 52];               // cars per km of road, by class (before the local-population factor)
@@ -12,6 +13,21 @@ const PANTS = [0x20242c, 0x2f3b52, 0x4a4036, 0x6b6b6b, 0x14181e, 0x3a4a3a, 0x564
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[(Math.random() * a.length) | 0];
 const keyOf = (x, z) => Math.round(x / 1.5) + ',' + Math.round(z / 1.5);
+// venue NPCs: staff in brand uniforms at the stations of service counters / checkouts, customers that come in through the door, queue / shop / sit
+// and leave again (routes on a per-hall flow field), all following the opening hours and the hour-of-day crowd level (js/venues.js)
+const VENUE = new Set(['sushi', 'market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr', 'apteka', 'kava']);
+const UNIFORM = { mcd: [0xc8102e, 0x1b1b1d], silpo: [0xf27820, 0x2a2a2e], market: [0x2f6fc0, 0x1f2633], epicentr: [0x4caf3c, 0x2a2f2a], puzata: [0xf2efe6, 0x5a2a20], sushi: [0x1b1b1d, 0x1b1b1d], fastfood: [0xc0392b, 0x1b1b1d], dining: [0xf2efe6, 0x1b1b1d], diy: [0xe07a20, 0x2a2f2a], apteka: [0xf4f7f5, 0x2f7a52], kava: [0x4a3022, 0x1b1b1d], retail: [0x3d5a80, 0x22252a] };
+// straight walk between two points of level k: free of solid furniture (uv footprints, margin m) and of the walls (polygon test)
+export function venueWalkable(I, k, x0, z0, x1, z1, m = 0.3) {
+  const R = (I.solidUV && I.solidUV[k]) || [], a = I.uvOf(x0, z0), b = I.uvOf(x1, z1), L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 0.25));
+  for (let i = 1; i < n; i++) { const u = a[0] + (b[0] - a[0]) * i / n, v = a[1] + (b[1] - a[1]) * i / n; for (const r of R) if (u > r[0] - m && u < r[1] + m && v > r[2] - m && v < r[3] + m) return false;
+    if (I.toXZ && I.inside_fn) { const q = I.toXZ(u, v); if (!I.inside_fn(q[0], q[1])) return false; } }
+  return true;
+}
+export function venuePed(I, p, sp, staff) {
+  const uni = UNIFORM[I.cat] || [0x334455, 0x222222];
+  return { inside: true, plan: p, I, x: sp.x, z: sp.z, y: sp.y, yaw: sp.yaw || 0, phase: Math.random() * 6.28, shirt: staff ? uni[0] : pick(SHIRT), pants: staff ? uni[1] : pick(PANTS), state: 'idle', hp: 3, path: { tile: p.key }, scale: rnd(0.92, 1.05), t: 0, staff: !!staff, spot: null, wait: rnd(4, 14), moving: 0, venue: true };
+}
 
 function humanoidGeometry() {
   const parts = [];
@@ -64,7 +80,7 @@ export class City {
     this.time = 0; this.level = 3; this.setLevel(3);
     this.pedMesh = this._pedMesh(); this.carMesh = this._carMesh(); this.farPts = this._farPoints();
     this.grid = new Map(); this.stamp = 0; this.carSeq = 0; this.stuckKilled = 0; this.killWhy = {}; this.spawnRej = 0;
-    this.spawnT = 0; this.seenTiles = new Set(); this.interiorPeds = new Map();
+    this.spawnT = 0; this.seenTiles = new Set(); this.interiorPeds = new Map(); this.venues = new Map(); this.clock = null;
     this.stats = { peds: 0, cars: 0, far: 0, inside: 0, popLocal: 0 };
     this.popTotal = manifest.pop ? manifest.pop.total : 0; this.popScale = manifest.pop ? manifest.pop.scale : 0;
     this.enabled = true;
@@ -76,7 +92,7 @@ export class City {
     this.capPed = (M ? [12, 28, 48, 80] : [30, 70, 130, 200])[l];
     this.capCar = (M ? [6, 14, 24, 36] : [16, 36, 70, 110])[l];
     this.capFar = (M ? [0, 60, 120, 180] : [60, 160, 280, 400])[l];
-    this.capIn = (M ? [0, 6, 12, 20] : [6, 16, 28, 40])[l];
+    this.capIn = (M ? [4, 8, 12, 20] : [8, 16, 28, 40])[l]; this.capV = (M ? [5, 8, 12, 16] : [10, 16, 24, 32])[l];
     this.carR = (M ? [110, 150, 190, 230] : [160, 230, 290, 350])[l];
     this.pedR = (M ? [60, 80, 100, 120] : [80, 110, 140, 170])[l];
     if (this.pedMesh) { this.pedMesh.count = Math.min(this.pedMesh.count, this.capPed + this.capIn); }
@@ -98,6 +114,13 @@ export class City {
             float c = cos(a), s = sin(a), py = aPart.y;
             float yy = transformed.y - py, zz = transformed.z;
             transformed.y = py + yy * c - zz * s; transformed.z = yy * s + zz * c;
+          }
+          if (aAnim.w > 0.5) {   // poses of venue NPCs: 1 = sitting (legs forward, forearms on the table), 2 = working at a counter (hands busy)
+            bool leg = (pid > 3.5 && pid < 5.5) || pid > 7.5, arm = (pid > 1.5 && pid < 3.5) || (pid > 5.5 && pid < 7.5);
+            float a = 0.0;
+            if (aAnim.w < 1.5) a = leg ? -1.5 : arm ? -0.55 : 0.0;
+            else if (arm) a = -0.8 + 0.16 * sin(uTime * 4.0 + aAnim.x + pid * 1.7);
+            if (a != 0.0) { float c = cos(a), s = sin(a), py = aPart.y, yy = transformed.y - py, zz = transformed.z; transformed.y = py + yy * c - zz * s; transformed.z = yy * s + zz * c; }
           }`);
       // pid must exist in the vertex-colour stage: declare it before use
       sh.vertexShader = sh.vertexShader.replace('void main() {', 'float pid;\nvoid main() {');
@@ -346,8 +369,13 @@ export class City {
   }
   _interiorPeds(P) {   // people inside buildings: a few idle residents / customers per active interior
     const act = this.world.interiors.active;
-    for (const [p, I] of act) {
-      if (this.interiorPeds.has(p)) continue; if (this.peds.filter(a => a.inside).length >= this.capIn) break;
+    // venues first (own budget capV, nearest hall first), then a few residents / office workers elsewhere (budget capIn)
+    const ord = [...act].filter(([p]) => !this.interiorPeds.has(p)).map(e => { const c = e[1].sp || e[1].inPt; e.d = c ? Math.hypot(c[0] - P.x, c[1] - P.z) : 1e9; return e; }).sort((A, B) => A.d - B.d);
+    for (const [p, I] of ord) {
+      if (!p.poi && I.cat === 'retail' && !(I.spots && I.spots[0])) continue;   // street shop: wait for the ground floor (spots)
+      if (I.spots && this._isVenue(p, I)) { const sp = I.spots[0]; if (!sp) continue; this.interiorPeds.set(p, this._venuePeds(p, I, sp)); continue; }   // venues: wait until the hall level (spots) is built
+      if (p.poi && VENUE.has(I.cat)) continue;
+      if (this.peds.filter(a => a.inside && !a.venue).length >= this.capIn) continue;
       const rooms = I.rooms; if (!rooms || !rooms.length) continue;
       const people = Math.min(4, Math.max(0, Math.round(Math.sqrt(p.area || 60) / 6 * Math.random() * (I.cat === 'living' ? 0.8 : 1.1))));
       const list = [];
@@ -365,8 +393,145 @@ export class City {
     if (this.peds.some(a => a.dead)) this.peds = this.peds.filter(a => !a.dead);
     this.stats.inside = this.peds.filter(a => a.inside).length;
   }
+  // ================================================================ venue NPCs (shops / food halls / street shops)
+  _isVenue(p, I) { if (p.poi) return VENUE.has(I.cat); const sp = I.spots && I.spots[0]; return I.cat === 'retail' && !!sp && sp.some(q => q.k === 'cash'); }
+  _vcaps(V) { const L = this.level, M = this.mob, st = V.key === 'street';
+    return { s: st ? 1 : (M ? [1, 2, 2, 3] : [2, 3, 4, 5])[L], c: st ? (M ? [1, 1, 2, 2] : [1, 2, 3, 3])[L] : (M ? [2, 3, 5, 6] : [4, 6, 9, 12])[L] }; }
+  _venuePeds(p, I, spots) {
+    const key = p.poi ? p.poi.key : 'street', V = { p, I, key, list: [], t: 0.5, spawnT: rnd(1.5, 4) }, h = this.clock ? this.clock.hour : 12, open = isOpen(key, h), cap = this._vcaps(V);
+    this.venues.set(p, V); for (const q of spots) q.busy = null;
+    const inside = () => this.peds.filter(a => a.venue).length;
+    if (open) {   // staff at the stations (one per counter piece first, then the second register / till)
+      const capS = Math.min(cap.s, Math.max(0, this.capV - inside())), byPid = new Set();
+      for (const pass of [0, 1]) for (const k of STAFF_K) for (const q of spots) {
+        if (V.list.length >= capS) break; if (q.k !== k || q.busy || q.player) continue; if (pass === 0 && byPid.has(q.pid)) continue;
+        byPid.add(q.pid); this._staffAt(V, q);
+      }
+      // customers already inside when the hall streams in (crowd level of the hour)
+      const want = Math.min(Math.round(cap.c * crowd(key, h)), Math.max(0, this.capV - inside() - 0)), cs = spots.filter(q => CUST_K.has(q.k) && !q.busy && !q.player);
+      for (let i = cs.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [cs[i], cs[j]] = [cs[j], cs[i]]; }
+      for (const q of cs) { if (V.list.filter(a => !a.staff).length >= want) break; if (q.k === 'queue' && Math.random() < 0.5) continue; const a = venuePed(I, p, q, false); this.peds.push(a); V.list.push(a); this._arrive(a, q); a.stay = this._stayOf(q) * rnd(0.2, 1); }
+    }
+    return V.list;
+  }
+  _staffAt(V, q, fromDoor) {
+    const a = venuePed(V.I, V.p, fromDoor ? this._doorPt(V.I) : q, true); a.roam = (a) => this._staffRoam(a); this.peds.push(a); V.list.push(a);
+    if (fromDoor) this._walkTo(a, q); else this._arrive(a, q); return a;
+  }
+  _doorPt(I) { const d = I.inPt || I.sp0 || I.sp; return { x: d[0], z: d[1], y: I.F0, yaw: 0 }; }
+  _stayOf(q) { return q.k === 'seat' ? rnd(45, 140) : q.k === 'shelf' ? rnd(7, 18) : q.k === 'queue' ? rnd(6, 14) : rnd(10, 26); }
+  _arrive(a, q) {   // ped stands at (or sits on) spot q
+    if (a.spot && a.spot !== q && a.spot.busy === a) a.spot.busy = null;
+    a.spot = q; q.busy = a; a.x = q.x; a.z = q.z; a.yaw = q.yaw; a.sit = !!q.seat; a.y = q.y - (q.seat ? 0.42 : 0); a.moving = 0; a.arrived = true; a.station = a.staff && STAFF_K.includes(q.k);
+  }
+  // walk along a flow-field route to spot q (or to the door when leaving)
+  _walkTo(a, q, done) {
+    const I = a.I, pts = this.venueRoute(I, a.x, a.z, q.x, q.z); if (!pts) return false;
+    if (a.spot && a.spot !== q && a.spot.busy === a) a.spot.busy = null; if (q.k) { q.busy = a; a.spot = q; }
+    a.sit = false; a.station = false; a.arrived = false; a.y = I.F0 + (q.y !== undefined ? q.y - I.F0 : 0); a.route = pts; a.goal = { q, done }; a.moving = 2; return true;
+  }
+  _leave(a) {
+    if (a.leaving) return; a.leaving = true; a.job = null; const q = a.spot; if (q && q.busy === a) q.busy = null; a.spot = null;
+    const d = this._doorPt(a.I); if (!this._walkTo(a, d, (a) => { a.dead = true; })) a.dead = true;
+  }
+  _staffRoam(a) {   // staff step between the stations of their own counter (register <-> prep table), along the staff aisle
+    const I = a.I, sp = I.spots && I.spots[0]; if (!sp || a.job || !a.spot || a.route) return;
+    const c = sp.filter(q => q !== a.spot && q.pid === a.spot.pid && !q.busy && !q.player && STAFF_K.includes(q.k) && q.k !== 'till'); if (!c.length) return;
+    const q = pick(c); if (!venueWalkable(I, 0, a.x, a.z, q.x, q.z, 0.12)) return; a.spot.busy = null; q.busy = a; a.spot = q; a.route = [[q.x, q.z]]; a.goal = { q }; a.station = false; a.moving = 2;
+  }
+  _spawnCustomer(V, q, opts = {}) {
+    const I = V.I, sp = I.spots && I.spots[0]; if (!sp) return null;
+    if (!q) { const c = sp.filter(s => CUST_K.has(s.k) && !s.busy && !s.player && (s.k !== 'queue' || Math.random() < 0.4) && (s.k !== 'pickup' || Math.random() < 0.3)); if (!c.length) return null; q = pick(c); }
+    if (q.busy && q.busy !== true) { const o = q.busy; if (o.staff) return null; this._leave(o); }
+    const a = venuePed(I, V.p, this._doorPt(I), false); if (!this._walkTo(a, q, opts.done)) return null;
+    a.stay = opts.stay !== undefined ? opts.stay : this._stayOf(q); a.job = opts.job || null; this.peds.push(a); V.list.push(a); return a;
+  }
+  _venueTick(dt) {   // every 0.5 s per venue: customers come / go by the crowd of the hour, staff leave when the shop closes
+    for (const [p, V] of this.venues) {
+      if (!this.world.interiors.active.has(p)) { this.venues.delete(p); continue; }
+      if ((V.t -= dt) > 0) continue; V.t = 0.5;
+      const h = this.clock ? this.clock.hour : 12, open = isOpen(V.key, h), cap = this._vcaps(V); V.list = V.list.filter(a => !a.dead); this.interiorPeds.set(p, V.list);
+      const custs = V.list.filter(a => !a.staff && !a.leaving), staff = V.list.filter(a => a.staff && !a.leaving);
+      if (!open) { for (const a of V.list) if (!a.job && !a.leaving && Math.random() < 0.25) this._leave(a); continue; }
+      V.staffT = (V.staffT || 0) - 0.5;   // shop opened while the player is inside (or a worker went on break): staff walks in, one every ~12 s up to the cap
+      if (!V.noStaff && staff.length < cap.s && (!staff.length || V.staffT <= 0) && this.peds.filter(a => a.venue).length < this.capV) {
+        V.staffT = 12; const sp0 = V.I.spots[0] || [], used = new Set(staff.map(a => a.spot && a.spot.pid));
+        const q = sp0.find(s => STAFF_K.includes(s.k) && !s.busy && !s.player && !used.has(s.pid)) || sp0.find(s => STAFF_K.includes(s.k) && !s.busy && !s.player); if (q) this._staffAt(V, q, true); else if (!staff.length) V.noStaff = true;
+      }
+      const want = Math.round(cap.c * crowd(V.key, h));
+      if ((V.spawnT -= 0.5) <= 0) { V.spawnT = rnd(3, 8) / Math.max(0.35, crowd(V.key, h)); if (custs.filter(a => !a.job).length < want && this.peds.filter(a => a.venue).length < this.capV) this._spawnCustomer(V); }
+      for (const a of custs) {
+        if (a.job || a.route || a.state !== 'idle') continue;
+        if ((a.stay -= 0.5) > 0) continue;
+        if (a.spot && a.spot.k === 'shelf' && (a.roams = (a.roams || 0) + 1) <= 2 && this._custRoam(a)) { a.stay = rnd(6, 16); continue; }
+        this._leave(a);
+      }
+    }
+  }
+  _custRoam(a) {   // shoppers browse: walk to another free shelf spot nearby
+    const I = a.I, sp = I.spots && I.spots[0]; if (!sp) return false; const c = sp.filter(q => !q.busy && !q.player && q.k === 'shelf' && Math.hypot(q.x - a.x, q.z - a.z) < 14); if (!c.length) return false;
+    return this._walkTo(a, pick(c));
+  }
+  // ---- per-hall flow field (0.4 m grid, BFS distance to the entrance) -> routes between any two points avoid the furniture
+  _flow(I) {
+    if (I._flowF !== undefined) return I._flowF; I._flowF = null;
+    const sol = (I.solidUV && I.solidUV[0]) || [], rooms = I.rooms; if (!rooms || !rooms.length || !I.inPt) return null;
+    let u0 = 1e9, v0 = 1e9, u1 = -1e9, v1 = -1e9; for (const r of rooms) { u0 = Math.min(u0, r.u0); v0 = Math.min(v0, r.v0); u1 = Math.max(u1, r.u1); v1 = Math.max(v1, r.v1); }
+    let cs = 0.4; if ((u1 - u0) * (v1 - v0) / (cs * cs) > 70000) cs = Math.sqrt((u1 - u0) * (v1 - v0) / 70000);
+    const gw = Math.ceil((u1 - u0) / cs), gh = Math.ceil((v1 - v0) / cs), N = gw * gh, blk = new Uint8Array(N), m = 0.27;
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) { const u = u0 + (i + 0.5) * cs, v = v0 + (j + 0.5) * cs; let ok = true;
+      for (const [du, dv] of [[0, 0], [m, 0], [-m, 0], [0, m], [0, -m]]) { const q = I.toXZ(u + du, v + dv); if (!I.inside_fn(q[0], q[1])) { ok = false; break; } } if (!ok) blk[j * gw + i] = 1; }
+    for (const r of sol) { const i0 = Math.max(0, Math.floor((r[0] - m - u0) / cs)), i1 = Math.min(gw - 1, Math.floor((r[1] + m - u0) / cs)), j0 = Math.max(0, Math.floor((r[2] - m - v0) / cs)), j1 = Math.min(gh - 1, Math.floor((r[3] + m - v0) / cs));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const u = u0 + (i + 0.5) * cs, v = v0 + (j + 0.5) * cs; if (u > r[0] - m && u < r[1] + m && v > r[2] - m && v < r[3] + m) blk[j * gw + i] = 1; } }
+    const F = { u0, v0, cs, gw, gh, blk, dist: new Uint16Array(N).fill(65535) };
+    const d = I.uvOf(I.inPt[0], I.inPt[1]), c0 = this._freeCell(F, d[0], d[1], 6); if (c0 < 0) return null;
+    const qu = new Int32Array(N); let h = 0, t = 0; qu[t++] = c0; F.dist[c0] = 0;
+    while (h < t) { const c = qu[h++], i = c % gw, j = (c / gw) | 0, dd = F.dist[c] + 1;
+      if (i > 0 && !blk[c - 1] && F.dist[c - 1] > dd) { F.dist[c - 1] = dd; qu[t++] = c - 1; } if (i < gw - 1 && !blk[c + 1] && F.dist[c + 1] > dd) { F.dist[c + 1] = dd; qu[t++] = c + 1; }
+      if (j > 0 && !blk[c - gw] && F.dist[c - gw] > dd) { F.dist[c - gw] = dd; qu[t++] = c - gw; } if (j < gh - 1 && !blk[c + gw] && F.dist[c + gw] > dd) { F.dist[c + gw] = dd; qu[t++] = c + gw; } }
+    return (I._flowF = F);
+  }
+  _freeCell(F, u, v, r, reach) {   // nearest free (and reached, if asked) cell to (u, v) within r cells
+    const ci = Math.floor((u - F.u0) / F.cs), cj = Math.floor((v - F.v0) / F.cs); let best = -1, bd = 1e9;
+    for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) { if (i < 0 || j < 0 || i >= F.gw || j >= F.gh) continue; const c = j * F.gw + i; if (F.blk[c] || (reach && F.dist[c] === 65535)) continue; const dd = (i - ci) ** 2 + (j - cj) ** 2; if (dd < bd) { bd = dd; best = c; } }
+    return best;
+  }
+  _descend(F, c) { const out = [c], gw = F.gw; let g = 0; while (F.dist[c] > 0 && g++ < 4000) { const dd = F.dist[c] - 1, i = c % gw; let n = -1; for (const k of [c - 1, c + 1, c - gw, c + gw]) { if (k < 0 || k >= F.dist.length || (k === c - 1 && i === 0) || (k === c + 1 && i === gw - 1)) continue; if (F.dist[k] === dd) { n = k; break; } } if (n < 0) break; c = n; out.push(c); } return out; }
+  venueRoute(I, x0, z0, x1, z1) {   // -> [[x, z], ...] ending at (x1, z1), or null
+    if (venueWalkable(I, 0, x0, z0, x1, z1, 0.22)) return [[x1, z1]];
+    const F = this._flow(I); if (!F) return null;
+    const a = I.uvOf(x0, z0), b = I.uvOf(x1, z1), ca = this._freeCell(F, a[0], a[1], 4, true), cb = this._freeCell(F, b[0], b[1], 4, true); if (ca < 0 || cb < 0) return null;
+    const pa = this._descend(F, ca), pb = this._descend(F, cb), ib = new Map(pb.map((c, i) => [c, i]));
+    let ia = pa.findIndex(c => ib.has(c)); if (ia < 0) return null;
+    const cells = pa.slice(0, ia + 1).concat(pb.slice(0, ib.get(pa[ia])).reverse());
+    const pts = cells.map(c => I.toXZ(F.u0 + (c % F.gw + 0.5) * F.cs, F.v0 + (((c / F.gw) | 0) + 0.5) * F.cs)); pts.push([x1, z1]);
+    const out = []; let cx = x0, cz = z0, i = 0;   // string pulling: farthest directly reachable point (window of 30 cells)
+    while (i < pts.length) { let j = Math.min(pts.length - 1, i + 30); while (j > i && !venueWalkable(I, 0, cx, cz, pts[j][0], pts[j][1], 0.18)) j--; out.push(pts[j]); cx = pts[j][0]; cz = pts[j][1]; i = j + 1; }
+    return out;
+  }
+  // ---- API for venue jobs (jobs.js)
+  venueOf(plan) { return this.venues.get(plan) || null; }
+  venueCustomer(plan, q, opts) { const V = this.venues.get(plan); return V ? this._spawnCustomer(V, q, opts) : null; }
+  venueSend(a, q) { if (!a || a.dead || a.staff) return false; const o = q.busy; if (o && o !== true && o !== a) { if (o.staff || o.job) return false; this._leave(o); } a.leaving = false; return this._walkTo(a, q); }
+  venueLeave(a) { if (a && !a.dead) this._leave(a); }
+  venueReserve(plan, q) {   // the player takes station q: the NPC working there goes on a break (walks out)
+    q.player = true; const a = q.busy; if (a && a !== true && a.staff) { q.busy = null; a.spot = null; this._leave(a); }
+  }
+  venueRelease(plan, q) { if (q) q.player = false; }
+  _simInside(dt) {   // venue NPCs: follow a.route (≈0.9 m/s), then idle / sit / work at the spot; staff occasionally step between stations
+    this._venueTick(dt);
+    for (const a of this.peds) {
+      if (!a.inside || a.dead || a.state !== 'idle' || !a.venue) continue;
+      if (a.route) {
+        const t = a.route[0], dx = t[0] - a.x, dz = t[1] - a.z, d = Math.hypot(dx, dz), st = 0.95 * dt;
+        if (d <= st) { a.x = t[0]; a.z = t[1]; a.route.shift();
+          if (!a.route.length) { a.route = null; const g = a.goal; a.goal = null; a.moving = 0; if (g && g.q && g.q.k) this._arrive(a, g.q); a.wait = rnd(6, 16); if (g && g.done) g.done(a); } }
+        else { a.x += dx / d * st; a.z += dz / d * st; a.yaw = Math.atan2(dx, dz); a.moving = 2; }
+      } else if (a.roam && !a.leaving && (a.wait -= dt) <= 0) { a.wait = rnd(8, 20); a.roam(a); }
+    }
+  }
   _simPeds(P, dt) {
-    const o = City._o || (City._o = {});
+    const o = City._o || (City._o = {}); this._simInside(dt);
     for (const a of this.peds) {
       if (a.inside) continue;
       if (a.state === 'walk' || a.state === 'flee') {
@@ -502,7 +667,8 @@ export class City {
       if (a.state === 'down') { qa.setFromAxisAngle(xa, -1.5); q.multiply(qa); y += 0.18; } else if (a.state === 'stagger') { qa.setFromAxisAngle(xa, -0.25); q.multiply(qa); }
       pv.set(a.x, y, a.z); sv.set(a.scale || 1, a.scale || 1, a.scale || 1); M.compose(pv, q, sv); pm.setMatrixAt(n, M);
       const moving = a.state === 'walk' || a.state === 'flee' || a.moving;
-      this.animArr.set([a.phase, moving ? (a.state === 'flee' ? 11 : a.moving ? 3.2 * a.moving : 6.5 * (a.speed || 1.2)) : 0, (a.state === 'flee' || a.moving) ? 1.5 : 1, 0], n * 4);
+      const pose = moving || a.state !== 'idle' ? 0 : a.sit ? 1 : a.station ? 2 : 0;
+      this.animArr.set([a.phase, moving ? (a.state === 'flee' ? 11 : a.moving ? 3.2 * a.moving : 6.5 * (a.speed || 1.2)) : 0, (a.state === 'flee' || a.moving) ? 1.5 : 1, pose], n * 4);
       col.setHex(a.shirt); this.shirtArr.set([col.r, col.g, col.b], n * 3); col.setHex(a.pants); this.pantsArr.set([col.r, col.g, col.b], n * 3); n++;
     }
     pm.count = n; pm.instanceMatrix.needsUpdate = true;

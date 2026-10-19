@@ -117,8 +117,8 @@ async function main() {
   }
 
   const world = (() => { const loadR = parseFloat(qs.get('dist') || (MOB ? '1050' : '1500')); return new World(scene, manifest, { base: BASE, shadows: true, loadR, unloadR: loadR + (MOB ? 500 : 800), treeKeep: parseFloat(qs.get('trees') || (MOB ? '0.5' : '1')), propDensity: MOB ? 0.5 : 1, lampKeep: MOB ? 0.5 : 1, detailR: DETAILR[qLevel], normalScale: MOB ? 1.0 : 1.0 }); })();
-  fx.world = world; fx.setLevel(qLevel);
-  const city = new City(world, scene, manifest, { mobile: MOB }); city.enabled = qs.get('city') !== '0'; city.setLevel(qLevel);
+  fx.world = world; fx.setLevel(qLevel); world.interiors.mob = MOB;   // lighter furniture / fewer venue NPCs on phones
+  const city = new City(world, scene, manifest, { mobile: MOB }); city.enabled = qs.get('city') !== '0'; city.setLevel(qLevel); city.clock = clock;
 
   // ---- player
   const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, fly: false, grounded: false, eye: 0, inWater: false, wl: null };

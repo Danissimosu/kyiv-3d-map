@@ -15,12 +15,30 @@ export const JOBDEFS = {
   taxi:     { id: 'taxi', title: 'Таксист', hourly: 280, brk: 40, quota: 8, unit: 'поезд.', color: 0xf2c40f, days: days([[[0, 1, 4, 5], '07:00', '19:00']]), desc: 'Возьмите машину из таксопарка, заберите пассажира в точке и довезите до адреса.' },
   bus:      { id: 'bus_driver', title: 'Водитель автобуса', hourly: 260, brk: 45, quota: 40, unit: 'ост.', color: 0x2878c8, days: days([[[0, 1], '05:30', '14:30'], [[4, 5], '13:30', '22:30']]), desc: 'Ведите автобус по реальному маршруту: на каждой остановке остановитесь в зоне и откройте двери кнопкой. Пропуск остановки — штраф.' },
   tram:     { id: 'tram_driver', title: 'Водитель трамвая', hourly: 190, brk: 40, quota: 40, unit: 'ост.', ot: 285, color: 0xc23b2e, days: days([[[0, 1], '05:20', '14:00'], [[4, 5], '14:00', '22:40']]), desc: 'Ведите трамвай по маршруту, останавливайтесь на каждой остановке и открывайте двери. После конца смены можно продолжить — сверхурочные.' },
+  // ---- jobs inside commercial venues (task 2, 10.2026): any branch of the employer chain; pay per game hour of active work (Work.ua Kyiv medians, see data/extra_spec.json)
+  mcd_cashier:   { id: 'mcd_cashier', venue: 'mcd', role: 'cashier', icon: '🍔', title: "Касир McDonald's", hourly: 135, brk: 30, quota: 40, unit: 'зам.', color: 0xda291c, days: days([[[0, 1, 2, 3, 4], '10:00', '19:00']]), desc: 'Станьте за касу: принимайте заказ у подошедшего гостя и пробивайте его (E у кассы). Чем быстрее, тем больше бонус.' },
+  mcd_cook:      { id: 'mcd_cook', venue: 'mcd', role: 'cook', icon: '🍳', title: "Кухар McDonald's", hourly: 150, brk: 30, quota: 30, unit: 'зам.', color: 0xffc72c, days: days([[[1, 2, 3, 4, 5], '07:00', '16:00']]), desc: 'Заказы приходят на экран: гриль → фритюр → сборка на столе. Подходите к станциям по порядку и держите E.' },
+  puzata_server: { id: 'puzata_server', venue: 'puzata', role: 'cashier', icon: '🍲', title: 'Працівник лінії роздачі', hourly: 130, brk: 30, quota: 40, unit: 'гост.', color: 0x3e6e3e, days: days([[[0, 1, 2, 3, 4], '11:00', '20:00']]), desc: 'На линии раздачи накладывайте гостям первые и вторые блюда (E у мармита, когда гость подошёл).' },
+  puzata_cook:   { id: 'puzata_cook', venue: 'puzata', role: 'cook', icon: '🍳', title: 'Кухар (Пузата Хата)', hourly: 165, brk: 30, quota: 24, unit: 'страв', color: 0x6b8e3e, days: days([[[0, 1, 2, 3, 4], '08:00', '17:00']]), desc: 'Готовьте борщ, вареники и деруны на плите и выставляйте их на линию раздачи.' },
+  sushi_chef:    { id: 'sushi_chef', venue: 'sushi', role: 'cook', icon: '🍣', title: 'Сушист', hourly: 210, brk: 30, quota: 20, unit: 'зам.', color: 0xc4143c, days: days([[[2, 3, 4, 5, 6], '12:00', '21:00']]), desc: 'Рис → скатать ролл → нарезать и выложить. Гость ждёт заказ у стойки выдачи.' },
+  silpo_cashier: { id: 'silpo_cashier', venue: 'silpo', role: 'cashier', icon: '🛒', title: 'Касир Сільпо', hourly: 145, brk: 30, quota: 40, unit: 'пок.', color: 0xf27820, days: days([[[0, 1, 4, 5], '08:00', '20:00']]), desc: 'Смена 2/2 по 12 часов. Покупатели выстраиваются у вашей кассы — сканируйте товары и принимайте оплату (E).' },
+  silpo_stocker: { id: 'silpo_stocker', venue: 'silpo', role: 'stocker', icon: '📦', title: 'Викладальник товару (Сільпо)', hourly: 130, brk: 30, quota: 30, unit: 'кор.', color: 0x008c46, days: days([[[0, 1, 2, 3, 4], '07:00', '16:00']]), desc: 'Берите коробки в подсобке (тележка с товаром) и выкладывайте товар на отмеченную полку.' },
+  atb_cashier:   { id: 'atb_cashier', venue: 'atb', role: 'cashier', icon: '🛒', title: 'Касир АТБ', hourly: 140, brk: 30, quota: 40, unit: 'пок.', color: 0x2f6fc0, days: days([[[0, 1, 2, 3, 4], '08:00', '17:00']]), desc: 'Обслуживайте очередь у кассы: сканирование товаров и оплата (E).' },
+  atb_stocker:   { id: 'atb_stocker', venue: 'atb', role: 'stocker', icon: '📦', title: 'Викладальник товару (АТБ)', hourly: 125, brk: 30, quota: 30, unit: 'кор.', color: 0x2f6fc0, days: days([[[1, 2, 3, 4, 5], '06:00', '15:00']]), desc: 'Коробки с тележки — на полки торгового зала.' },
+  epi_sales:     { id: 'epi_sales', venue: 'epicentr', role: 'sales', icon: '🛠', title: 'Продавець-консультант (Епіцентр)', hourly: 175, brk: 40, quota: 16, unit: 'конс.', color: 0xf4c418, days: days([[[0, 1, 2, 3, 4], '09:00', '18:00']]), desc: 'Подходите к покупателям с вопросом (метка) и консультируйте (E). Успешная продажа — бонус.' },
+  epi_stocker:   { id: 'epi_stocker', venue: 'epicentr', role: 'stocker', icon: '📦', title: 'Комірник (Епіцентр)', hourly: 160, brk: 40, quota: 24, unit: 'кор.', color: 0x006e37, days: days([[[0, 1, 2, 3, 4], '08:00', '17:00']]), desc: 'Товар со склада-тележки — на стеллажи зала.' },
+  epi_cashier:   { id: 'epi_cashier', venue: 'epicentr', role: 'cashier', icon: '🛒', title: 'Касир (Епіцентр)', hourly: 150, brk: 30, quota: 36, unit: 'пок.', color: 0xf4c418, days: days([[[2, 3, 4, 5, 6], '09:00', '18:00']]), desc: 'Касса на выходе: сканирование и оплата (E).' },
+  apteka_pharm:  { id: 'apteka_pharm', venue: 'apteka', role: 'pharm', icon: '💊', title: 'Фармацевт', hourly: 195, brk: 30, quota: 24, unit: 'рецепт.', color: 0x0f8a4a, days: days([[[0, 1, 2, 3, 4], '08:00', '17:00']]), desc: 'Примите рецепт у покупателя на кассе, найдите препарат в шкафу и отпустите его (E).' },
+  kava_barista:  { id: 'kava_barista', venue: 'kava', role: 'barista', icon: '☕', title: 'Бариста', hourly: 140, brk: 30, quota: 30, unit: 'напит.', color: 0x6b4a34, days: days([[[0, 1, 2, 3, 4], '07:00', '16:00']]), desc: 'Примите заказ на кассе, сварите эспрессо, взбейте молоко и выдайте напиток гостю (E).' },
 };
+export const VENUE_JOBS = Object.values(JOBDEFS).filter(J => J.venue);
+export const jobsAt = (venueKey) => Object.entries(JOBDEFS).filter(([k, J]) => J.venue === venueKey).map(([k, J]) => Object.assign({ key: k }, J));
 export function scheduleText(J) {
   const segs = []; for (let d = 0; d < 7; d++) { const w = J.days[d]; if (!w) continue; const k = hhmm(w[0]) + '–' + hhmm(w[1]); const last = segs[segs.length - 1]; if (last && last.k === k && last.d1 === d - 1) last.d1 = d; else segs.push({ k, d0: d, d1: d }); }
   return segs.map(s => (s.d0 === s.d1 ? WD[s.d0] : WD[s.d0] + '–' + WD[s.d1]) + ' ' + s.k).join(' · ');
 }
-const ICON = { dvornik: '🧹', gruzchik: '📦', kurier: '🛵', taxi: '🚕', bus: '🚌', tram: '🚋' };
+const ICON0 = { dvornik: '🧹', gruzchik: '📦', kurier: '🛵', taxi: '🚕', bus: '🚌', tram: '🚋' };
+const ICON = new Proxy(ICON0, { get: (o, k) => o[k] || (JOBDEFS[k] && JOBDEFS[k].icon) || '💼' });
 const matCache = new Map();
 const mat = (c, o = {}) => { const k = c + JSON.stringify(o); let m = matCache.get(k); if (!m) { m = new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.8 }, o)); matCache.set(k, m); } return m; };
 const BOX = new THREE.BoxGeometry(1, 1, 1);
@@ -73,19 +91,21 @@ export class Jobs {
     const bs = el('div', '', '', h); bs.style.cssText = 'display:flex;gap:6px;justify-content:center;margin-top:3px;pointer-events:auto';
     const mkb = (t, fn) => { const b = el('span', '', t, bs); b.style.cssText = `padding:${T ? '5px 12px' : '2px 9px'};background:rgba(255,255,255,.2);border-radius:10px;font-size:${T ? 12 : 12}px`; tap(b, fn); return b; };
     this.bBrk = mkb('☕ обед', () => this.takeBreak()); this.bQuit = mkb('✕ закончить', () => this.end('quit'));
+    if (T) { const place = () => { h.style.top = `calc(${innerHeight > innerWidth ? 100 : 58}px + env(safe-area-inset-top))`; }; place(); addEventListener('resize', place); }   // phone portrait: below the status panel
   }
   takeBreak() { const sh = this.sh; if (!sh) return; if (sh.brkDone) { toast('Обед уже был'); return; } if (sh.brk > 0) return; sh.brkDone = true; sh.brk = sh.J.brk; toast(`☕ Обед ${sh.J.brk} мин — не оплачивается`); }
   est(sh) { const J = sh.J; return Math.max(0, Math.round(J.hourly * sh.worked / 60 + (J.ot || 0) * sh.ot / 60 + sh.bonus - sh.pen)); }
   addBonus(v, why) { const sh = this.sh; if (!sh) return; sh.bonus += v; sh.log.push([why, v]); }
   addPen(v, why) { const sh = this.sh; if (!sh) return; sh.pen += v; sh.log.push([why, -v]); toast(`⚠ ${why}: −₴${v}`); }
   // ---------------------------------------------------------------- shift lifecycle
-  begin(poi) {
-    if (this.sh) return; const J = JOBDEFS[poi.key]; if (!J) return; const ck = this.ck;
-    const sh = { J, key: poi.key, poi, startAbs: ck.abs, startWk: ck.wk, worked: 0, ot: 0, idle: 0, off: 0, brk: 0, brkUsed: 0, brkDone: false, bonus: 0, pen: 0, log: [], done: 0, act: 0, tw: 0, ld: null, lx: this.P.x, lz: this.P.z, spd: 0, tgt: null, hud: '', sub: '', prog: -1, marks: [], working: false, keep: false, otAsked: false };
-    this.sh = sh; const mk = { dvornik: Janitor, gruzchik: Loader, kurier: Courier, taxi: Taxi, bus: Drive, tram: Drive }[poi.key];
+  icon(k) { return ICON[k]; }
+  begin(poi, key = poi.key) {   // key: job (JOBDEFS) — for venue jobs poi is the branch where the shift is worked
+    if (this.sh) return; const J = JOBDEFS[key]; if (!J) return; const ck = this.ck; if (J.venue && J.venue !== poi.key) return;
+    const sh = { J, key, poi, startAbs: ck.abs, startWk: ck.wk, worked: 0, ot: 0, idle: 0, off: 0, brk: 0, brkUsed: 0, brkDone: false, bonus: 0, pen: 0, log: [], done: 0, act: 0, tw: 0, ld: null, lx: this.P.x, lz: this.P.z, spd: 0, tgt: null, hud: '', sub: '', prog: -1, marks: [], working: false, keep: false, otAsked: false };
+    this.sh = sh; const mk = J.venue ? VenueWork : { dvornik: Janitor, gruzchik: Loader, kurier: Courier, taxi: Taxi, bus: Drive, tram: Drive }[key];
     sh.impl = new mk(this, sh, poi); const ok = sh.impl.start(); if (ok === false) { this.sh = null; sh.impl.dispose(); return; }
     this.beacon.material.color.setHex(J.color); this.hud.style.display = 'block';
-    const st = this.status(J); toast(`${ICON[poi.key]} Смена: ${J.title} · ₴${J.hourly}/ч${st.ok ? '' : ' — вне графика, не оплачивается'}`, 3600);
+    const st = this.status(J); toast(`${ICON[key]} Смена: ${J.title} · ₴${J.hourly}/ч${st.ok ? '' : ' — вне графика, не оплачивается'}`, 3600);
   }
   end(reason) {
     const sh = this.sh; if (!sh) return; this.sh = null; const g = this.g, P = this.P;
@@ -325,4 +345,124 @@ class Drive {
     sh.marks = nx ? [{ x: nx.sx, z: nx.sz, icon: '🚏', col: '#ffd966' }] : [];
   }
   dispose() { const t = this.J.ctx.transit; if (t.drive) t.stopDriving('quit', true); }
+}
+
+// ==================================================================== Venue work (task 2): cashier / cook / server / stocker / sales / pharmacist / barista inside a commercial hall.
+// A task = a chain of steps at real counter stations of the procedural interior (rooms.js spots); hold E (or tap E once on a phone = auto-hold) near
+// the marked station. NPC customers walk up to the counter (city.js venue peds) and leave when served; the NPC employee of the player's station steps out.
+const ALT = { reg: ['reg', 'till', 'cash', 'serve'], till: ['till', 'reg', 'cash'], cash: ['cash', 'till', 'reg', 'serve'], serve: ['serve', 'reg', 'cash'], grill: ['grill', 'kitchen', 'prep', 'reg'],
+  fryer: ['fryer', 'kitchen', 'grill', 'prep'], prep: ['prep', 'kitchen', 'drinks', 'reg'], kitchen: ['kitchen', 'grill', 'prep', 'serve'], rice: ['rice', 'roll', 'prep', 'kitchen'],
+  roll: ['roll', 'rice', 'cut', 'prep'], cut: ['cut', 'roll', 'prep'], drawer: ['drawer', 'cash'], barista: ['barista', 'drinks', 'milk', 'cash'], milk: ['milk', 'barista', 'drinks'],
+  stock: ['stock'], shelf: ['shelf'] };
+const VT = {   // [station kind, label, seconds of holding E, flags]  w = wait for the customer at the counter first, c = carry a box, C = go to the customer
+  mcd_cashier:   { cust: ['cust', 'queue'], bonus: 5, steps: [['reg', 'Примите заказ', 1.6, 'w'], ['reg', 'Пробейте чек и выдайте поднос', 1.8]] },
+  mcd_cook:      { cust: ['pickup', 'cust'], bonus: 6, steps: [['grill', 'Обжарьте котлету на гриле', 2.2], ['fryer', 'Картошку фри — во фритюр', 1.8], ['prep', 'Соберите бургер и упакуйте', 1.6]] },
+  puzata_server: { cust: ['line'], bonus: 5, steps: [['serve', 'Налейте борщ', 1.4, 'w'], ['serve', 'Положите второе и салат', 1.6]] },
+  puzata_cook:   { cust: ['line', 'seat'], bonus: 7, steps: [['kitchen', 'Сварите борщ / вареники', 3.0], ['serve', 'Выставьте блюдо на линию', 1.2]] },
+  sushi_chef:    { cust: ['pickup', 'seat'], bonus: 9, steps: [['rice', 'Подготовьте рис и нори', 1.6], ['roll', 'Сверните ролл', 2.4], ['cut', 'Нарежьте и выложите', 1.6]] },
+  silpo_cashier: { cust: ['pay', 'line'], bonus: 5, steps: [['till', 'Сканируйте товары', 2.6, 'w'], ['till', 'Примите оплату', 1.2]] },
+  atb_cashier:   { cust: ['pay', 'line'], bonus: 4, steps: [['till', 'Сканируйте товары', 2.4, 'w'], ['till', 'Примите оплату', 1.2]] },
+  epi_cashier:   { cust: ['pay', 'line'], bonus: 5, steps: [['till', 'Сканируйте товары', 2.6, 'w'], ['till', 'Примите оплату', 1.2]] },
+  silpo_stocker: { bonus: 5, steps: [['stock', 'Возьмите коробку с товаром', 1.2, 'c'], ['shelf', 'Выложите товар на полку', 3.0]] },
+  atb_stocker:   { bonus: 4, steps: [['stock', 'Возьмите коробку с товаром', 1.2, 'c'], ['shelf', 'Выложите товар на полку', 3.0]] },
+  epi_stocker:   { bonus: 6, steps: [['stock', 'Возьмите товар со склада', 1.4, 'c'], ['shelf', 'Расставьте товар на стеллаже', 3.2]] },
+  epi_sales:     { bonus: 8, steps: [['C', 'Проконсультируйте покупателя', 3.2]] },
+  apteka_pharm:  { cust: ['pay', 'cust', 'line'], bonus: 8, steps: [['cash', 'Примите рецепт', 1.4, 'w'], ['drawer', 'Найдите препарат в шкафу', 1.8], ['cash', 'Отпустите препарат', 1.2]] },
+  kava_barista:  { cust: ['cust', 'pay', 'line'], bonus: 5, pickup: 'pickup', steps: [['cash', 'Примите заказ', 1.4, 'w'], ['barista', 'Сварите эспрессо', 2.0], ['milk', 'Взбейте молоко', 1.6], ['barista', 'Отдайте напиток гостю', 1.0]] },
+};
+class VenueWork {
+  constructor(J, sh, poi) { this.J = J; this.sh = sh; this.poi = poi; this.def = VT[sh.key] || VT.mcd_cashier; this.task = null; this.wait = 1; this.home = null; this.I = null; this.auto = false; this.cm = null; this.away = 0; this.v = 0; }
+  start() {
+    const J = this.J, cg = new THREE.BoxGeometry(0.5, 0.36, 0.42); this.cm = new THREE.Mesh(cg, mat(0xc9a25e)); this.cm.position.set(0, -0.48, -0.8); this.cm.visible = false; if (J.cam) J.cam.add(this.cm);
+    this.prevAct = J.g.bAct ? 1 : 0; return true;
+  }
+  city() { return this.J.city; }
+  // interior of the employer's hall, only while the player is on its ground floor
+  hall() {
+    const p = this.poi.pl, I = p && this.J.world.interiors && this.J.world.interiors.active.get(p);
+    if (!I || !I.spots || !I.spots[0] || !I.inside || I.cur !== 0) return null; return I;
+  }
+  spots() { return (this.I && this.I.spots[0]) || []; }
+  near(k, from, pid) {   // nearest spot of kind k (with fallbacks), same counter first
+    const sp = this.spots(); for (const kk of ALT[k] || [k]) { let best = null, bd = 1e9; for (const q of sp) { if (q.k !== kk) continue; const d = Math.hypot(q.x - from.x, q.z - from.z) - (pid !== undefined && q.pid === pid ? 6 : 0); if (d < bd) { bd = d; best = q; } } if (best) return best; }
+    return null;
+  }
+  onPlan(I) {   // first time inside the hall this shift: take the station of the role
+    this.I = I; const f = this.def.steps[0][0] === 'C' ? null : this.def.steps.find(s => s[0] !== 'stock' && s[0] !== 'shelf');
+    const P = this.J.P; this.home = f ? this.near(f[0], P) : null;
+    if (this.home && this.city().venueReserve) this.city().venueReserve(I.plan, this.home);
+    this.task = null; this.wait = 0.8;
+  }
+  newTask() {
+    const d = this.def, P = this.J.P, c = this.city(), from = this.home || P, pid = this.home ? this.home.pid : undefined, t = { i: 0, steps: [], cust: null, cq: null, abs: 0, t0: 0 };
+    for (const [k, lab, sec, fl] of d.steps) {
+      let q = null;
+      if (k === 'shelf') { const sh = this.spots().filter(q => q.k === 'shelf' && Math.hypot(q.x - P.x, q.z - P.z) > 3); q = sh.length ? sh[(Math.random() * sh.length) | 0] : this.near('shelf', P); }
+      else if (k !== 'C') q = (k === d.steps[0][0] && this.home) ? this.home : this.near(k, from, pid);
+      if (!q && k === 'stock') { const ip = this.I.inPt || this.I.sp; q = { x: ip[0], z: ip[1], k: 'stock' }; }
+      if (!q && k !== 'C') q = { x: this.I.sp[0], z: this.I.sp[1], k };
+      t.steps.push({ q, lab, sec, fl: fl || '', p: 0 });
+    }
+    // the customer of this order
+    const V = c.venueOf ? c.venueOf(this.I.plan) : null;
+    if (d.steps[0][0] === 'C') {   // sales: a shopper with a question (one already browsing, else a new one walking to a shelf)
+      let a = V && V.list.find(a => !a.staff && !a.job && !a.leaving && !a.dead && a.arrived && a.spot && a.spot.k === 'shelf');
+      if (a) { a.job = this; a.stay = 1e9; } else { const sh = this.spots().filter(q => q.k === 'shelf' && !q.busy && !q.player); if (sh.length && c.venueCustomer) a = c.venueCustomer(this.I.plan, sh[(Math.random() * sh.length) | 0], { stay: 1e9, job: this }); }
+      t.cust = a || null; if (!a) t.abs = 2;
+    } else if (d.cust && V) {
+      const ref = t.steps[0].q; let cq = null, bd = 1e9;
+      for (const k of d.cust) { for (const q of this.spots()) { if (q.k !== k || (q.player && q !== this.I.spAt) || (q.busy && q.busy !== true && (q.busy.job || q.busy.staff))) continue; const dd = Math.hypot(q.x - ref.x, q.z - ref.z) + (q.pid === ref.pid ? 0 : 3); if (dd < bd && dd < 9) { bd = dd; cq = q; } } if (cq) break; }
+      // prefer a customer who is already in the hall (shoppers go to the checkout), else one walks in from the street door
+      let a = null; if (cq && V) { const w = V.list.find(a => !a.staff && !a.job && !a.leaving && !a.dead && a.arrived && a.spot && (a.spot === cq || a.spot.k === 'shelf' || a.spot.k === 'queue'));
+        if (w && c.venueSend && c.venueSend(w, cq)) { a = w; a.job = this; a.stay = 1e9; } }
+      if (!a && cq && c.venueCustomer) a = c.venueCustomer(this.I.plan, cq, { stay: 1e9, job: this });
+      t.cust = a; t.cq = cq; if (!a) t.abs = 2.5;   // no NPC (crowd disabled / no free spot): an abstract customer arrives in a moment
+    } else t.abs = 0;
+    this.task = t;
+  }
+  custReady(t, dt) { if (t.cust) { const a = t.cust; if (a.dead) { t.cust = null; t.abs = 0; return true; } if (t.t0 > 40) return true; return a.arrived && !a.route; } if (t.abs > 0) { t.abs -= dt; return t.abs <= 0; } return true; }
+  finish(t) {
+    const c = this.city(), sh = this.sh, d = this.def; sh.done++; sh.actT = 1.2;
+    const quick = t.t0 < 25 ? 1 : 0, bon = d.bonus + quick * 2; this.J.addBonus(bon, 'Обслуживание'); let extra = '';
+    if (sh.key === 'epi_sales' && Math.random() < 0.45) { this.J.addBonus(20, 'Продажа'); extra = ' · продажа +₴20'; }
+    if (t.cust && !t.cust.dead) { const a = t.cust; a.job = null; if (d.pickup && c.venueSend) { const pq = this.spots().find(q => q.k === d.pickup && !q.busy); if (pq && c.venueSend(a, pq)) { a.stay = 4; } else c.venueLeave(a); } else c.venueLeave(a); }
+    toast(`${this.J.icon(sh.key)} ${sh.done}/${sh.J.quota} · +₴${bon}${extra}`, 1300); this.task = null; this.wait = 1.2 + Math.random() * 2;
+  }
+  tick(dt, P) {
+    const sh = this.sh, J = this.J, g = J.g; sh.marks = [];
+    // tap on the phone action button = auto-hold until the step completes; holding E on desktop works the same
+    if (g._actTap) { g._actTap = false; this.auto = true; }
+    const I = this.hall();
+    if (!I) {   // not in the hall: go (back) to the venue
+      if (this.I && this.task) this.drop(); this.I = null; this.home = null; this.auto = false; this.cm.visible = false; P.slow = undefined;
+      const dr = J.doorOf(this.poi, 0.5); sh.tgt = { x: dr.x, z: dr.z }; sh.hud = this.poi.name; sh.sub = 'Идите на работу в заведение'; sh.marks = [{ x: this.poi.x, z: this.poi.z, icon: J.icon(sh.key), col: '#ffd966' }]; return;
+    }
+    if (I !== this.I) this.onPlan(I);
+    if (!this.task) { if (this.home) { const d = Math.hypot(P.x - this.home.x, P.z - this.home.z); if (d < 1.6) sh.act = 1; else sh.tgt = { x: this.home.x, z: this.home.z }; }
+      sh.sub = 'Ждём следующего заказа…'; if ((this.wait -= dt) <= 0) this.newTask(); return; }
+    const t = this.task; t.t0 += dt; const s = t.steps[t.i]; sh.hud = s.lab;
+    const tgt = s.q || (t.cust && !t.cust.dead ? t.cust : null);
+    if (!tgt) { if (t.abs > 0) { t.abs -= dt; sh.sub = 'Покупатель подходит…'; sh.act = 1; return; } this.finish(t); return; }
+    const dist = Math.hypot(P.x - tgt.x, P.z - tgt.z), R = s.q ? 1.45 : 1.7;
+    sh.marks = [{ x: tgt.x, z: tgt.z, icon: s.fl.includes('c') ? '📦' : J.icon(sh.key), col: '#ffd966' }];
+    if (dist > R) { sh.tgt = { x: tgt.x, z: tgt.z }; sh.sub = s.q ? 'Подойдите к месту с маяком' : 'Подойдите к покупателю'; this.auto = false; return; }
+    if (s.fl.includes('w') && !this.custReady(t, dt)) { sh.act = 1; sh.sub = 'Покупатель подходит к кассе…'; return; }
+    if (!s.q && t.cust && !this.custReady(t, dt)) { sh.act = 1; sh.sub = 'Покупатель…'; return; }
+    const hold = g.holdE || this.auto; sh.prog = s.p / s.sec; sh.sub = hold ? 'Работаем…' : (J.ctx.IS_TOUCH ? 'Нажмите E' : 'Держите E');
+    if (!hold) return;
+    sh.act = 1; s.p += dt;
+    if (s.p >= s.sec) {
+      this.auto = false; t.i++;
+      if (s.fl.includes('c')) { this.cm.visible = true; P.slow = 0.8; }
+      if (s.q && s.q.k === 'shelf') { this.cm.visible = false; P.slow = undefined; }
+      if (t.i >= t.steps.length) this.finish(t);
+      else if (this.def.pickup && t.i === 1 && t.cust && !t.cust.dead) { const pq = this.spots().find(q => q.k === this.def.pickup && !q.busy); if (pq && this.city().venueSend) this.city().venueSend(t.cust, pq); }
+    }
+  }
+  drop() { const t = this.task; if (t && t.cust && !t.cust.dead) { t.cust.job = null; this.city().venueLeave(t.cust); } this.task = null; }
+  provider(P) {   // the action button reads "work" while near the current station
+    const t = this.task; if (!t || !this.I) return null; const s = t.steps[t.i]; if (!s) return null; const tg = s.q || t.cust; if (!tg || Math.hypot(P.x - tg.x, P.z - tg.z) > (s.q ? 1.45 : 1.7)) return null;
+    return { label: s.lab, run: () => { this.auto = true; } };
+  }
+  dispose() { this.drop(); if (this.home && this.city().venueRelease) this.city().venueRelease(null, this.home); if (this.cm && this.cm.parent) this.cm.parent.remove(this.cm); this.J.P.slow = undefined; }
 }

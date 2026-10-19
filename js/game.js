@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { $, UI, el, tap, toast, panel } from './ui.js';
 import { JOBDEFS, scheduleText } from './jobs.js';
 import { WD, hhmm } from './clock.js';
+import { HOURS, isOpen } from './venues.js';
+export { isOpen };
 
 export const ITEMS = {
   homekey: { n: 'Ключ от квартиры', icon: '🔑', stack: 1, info: 'Без ключа дверь съёмной квартиры закрыта' },
@@ -12,6 +14,8 @@ export const ITEMS = {
   rolls:   { n: 'Роллы', icon: '🍣', food: 34 }, miso: { n: 'Мисо-суп', icon: '🍜', food: 15, water: 10 }, tea: { n: 'Зелёный чай', icon: '🍵', water: 25 },
   bread:   { n: 'Хлеб', icon: '🍞', food: 18 }, sandwich: { n: 'Бутерброд', icon: '🥪', food: 22 }, water: { n: 'Вода', icon: '💧', water: 35 }, juice: { n: 'Сок', icon: '🧃', water: 28, food: 4 },
   choco:   { n: 'Шоколад', icon: '🍫', food: 12, hp: 2 }, apple: { n: 'Яблоко', icon: '🍎', food: 8, water: 6 }, medkit: { n: 'Аптечка', icon: '🩹', hp: 45 },
+  painkill: { n: 'Обезболивающее', icon: '💊', hp: 15 }, vitamins: { n: 'Витамины', icon: '🍊', hp: 8, food: 2 }, bandage: { n: 'Бинт и пластырь', icon: '🧻', hp: 20 },
+  latte:   { n: 'Латте', icon: '☕', water: 14, food: 6 }, croissant: { n: 'Круассан', icon: '🥐', food: 16 },
   crowbar: { n: 'Монтировка', icon: '🔧', stack: 1, info: 'Инструмент' },
   broom:   { n: 'Метла', icon: '🧹', stack: 1, info: 'Рабочий инструмент дворника (сдаётся после смены)' },
   parcel:  { n: 'Заказ курьера', icon: '📦', stack: 1, info: 'Доставьте клиенту' },
@@ -23,11 +27,11 @@ const SHOPS = {
   silpo:    ['bread', 'sandwich', 'water', 'juice', 'choco', 'apple', 'medkit'],
   atb:      ['bread', 'sandwich', 'water', 'juice', 'choco', 'apple', 'medkit'],
   epicentr: ['medkit', 'water', 'crowbar'],
+  apteka:   ['medkit', 'painkill', 'vitamins', 'bandage', 'water'],
+  kava:     ['coffee', 'latte', 'croissant', 'tea', 'water'],
 };
 // prices consistent with the wages (Kyiv 2026 medians): a meal 150-300 UAH, groceries 25-100, a first-aid kit ~280
-const PRICE = { burger: 165, fries: 85, cola: 65, coffee: 75, borsch: 120, vareniki: 160, kompot: 45, deruny: 110, rolls: 290, miso: 150, tea: 90, bread: 32, sandwich: 85, water: 35, juice: 60, choco: 65, apple: 28, medkit: 280, crowbar: 650 };
-const HOURS = { mcd: [0, 24], puzata: [9, 22], sushi: [11, 23], silpo: [8, 23], atb: [8, 23], epicentr: [9, 21] };   // opening hours (game clock)
-export const isOpen = (key, h) => { const o = HOURS[key]; return !o || (h >= o[0] && h < o[1]); };
+const PRICE = { burger: 165, fries: 85, cola: 65, coffee: 75, borsch: 120, vareniki: 160, kompot: 45, deruny: 110, rolls: 290, miso: 150, tea: 90, bread: 32, sandwich: 85, water: 35, juice: 60, choco: 65, apple: 28, medkit: 280, crowbar: 650, painkill: 95, vitamins: 140, bandage: 55, latte: 85, croissant: 70 };
 export const JOBS = JOBDEFS;   // hourly pay / weekly schedules from data/extra_spec.json (see js/jobs.js)
 const SLOTS = 20, STACK = 10;
 
@@ -179,26 +183,35 @@ export class Game {
   }
   doAction() { if (this.act && !UI.modal) this.act.run(); }
   openShop(poi) {
-    if (!isOpen(poi.key, this.ctx.clock.hour)) { const o = HOURS[poi.key]; this.shopP.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; this.shopP.body.innerHTML = `<p style="font-size:16px">🔒 Закрыто. Работает ${hhmm(o[0] * 60)}–${hhmm(o[1] * 60)}. Сейчас ${this.ctx.clock.text}.</p>`; this.shopP.open(); return; }
+    if (!isOpen(poi.key, this.ctx.clock.hour)) { const o = HOURS[poi.key]; this.shopP.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; this.shopP.body.innerHTML = `<p style="font-size:16px">🔒 Закрыто. Работает ${hhmm(o[0] * 60)}–${hhmm(o[1] * 60)}. Сейчас ${this.ctx.clock.text}.</p>`; this._vacancies(poi, this.shopP.body, this.shopP); this.shopP.open(); return; }
     const p = this.shopP; p.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; const b = p.body; const draw = () => {
       b.innerHTML = `<div style="margin:4px 0 8px"><b>₴ ${Math.floor(this.S.money)}</b> · 🍖 ${Math.round(this.S.food)} · 💧 ${Math.round(this.S.water)}</div>`;
       for (const id of SHOPS[poi.key] || []) { const it = ITEMS[id], r = el('div', 'row', '', b); el('div', 't', `<b>${it.icon} ${it.n}</b><small>${[it.food ? '🍖 +' + it.food : '', it.water ? '💧 +' + it.water : '', it.hp ? '❤ +' + it.hp : '', it.info || ''].filter(Boolean).join('  ')}</small>`, r);
         tap(el('span', 'btn' + (this.S.money < PRICE[id] ? ' off' : ''), '₴' + PRICE[id], r), () => { if (this.S.inv.length >= SLOTS && !this.S.inv.some(s => s.id === id && s.n < (it.stack || STACK))) { toast('Рюкзак полон'); return; } if (this.pay(PRICE[id])) { this.add(id, 1); toast(`${it.icon} ${it.n} — куплено`); draw(); } });
         tap(el('span', 'btn g' + (this.S.money < PRICE[id] ? ' off' : ''), (it.hp && !it.food && !it.water ? 'применить' : 'съесть'), r), () => { if (this.pay(PRICE[id])) { this.add(id, 1); this.use(id); draw(); } }); }
+      this._vacancies(poi, b, p);
       if (this.crime) { const st = el('div', 'btn r', '🕶 Украсть товар (рискованно)', b); st.style.marginTop = '10px'; tap(st, () => { p.close(); this.crime.steal(poi, SHOPS[poi.key] || []); }); }
     }; draw(); p.open();
   }
-  openJob(poi) {
-    const p = this.jobP, J = JOBS[poi.key], S = this.S, jobs = this.jobs, ck = this.ctx.clock; p.titleEl.textContent = `${poi.cat.icon} ${J.title} — ${poi.name}`; const b = p.body; b.innerHTML = '';
+  // vacancies of a chain (McDonald's, Сільпо, АТБ, ...): listed in its shop panel; a job of the chain is worked in any of its branches
+  _vacancies(poi, b, panel) {
+    const list = Object.entries(JOBS).filter(([k, J]) => J.venue === poi.key); if (!list.length) return;
+    el('div', '', '<div style="margin:12px 0 4px;font-weight:700">💼 Вакансии</div>', b);
+    for (const [k, J] of list) { const mine = this.S.job && this.S.job.key === k, r = el('div', 'row', '', b);
+      el('div', 't', `<b>${J.icon} ${J.title}</b><small>₴${J.hourly}/час · ${scheduleText(J)}${mine ? ' · <b style="color:#7fe08a">ваша работа</b>' : ''}</small>`, r);
+      tap(el('span', 'btn', mine ? 'Смена' : 'Подробнее', r), () => { panel.close(); this.openJob(poi, k); }); }
+  }
+  openJob(poi, key = poi.key) {
+    const p = this.jobP, J = JOBS[key], S = this.S, jobs = this.jobs, ck = this.ctx.clock; if (!J) return; p.titleEl.textContent = `${J.icon || poi.cat.icon} ${J.title} — ${poi.name}`; const b = p.body; b.innerHTML = '';
     el('div', 'row', `<div class="t"><b>${J.title} · ₴${J.hourly}/час</b><small>${J.desc}<br>🕒 смена: ${scheduleText(J)}<br>☕ обед ${J.brk} мин (не оплачивается)${J.ot ? ' · сверхурочные ₴' + J.ot + '/час' : ''}<br>Сейчас: ${ck.text}${poi.real ? '' : ' · игровая точка'}</small></div>`, b);
-    const mine = S.job && S.job.key === poi.key, inShift = jobs && jobs.sh;
-    if (!S.job) tap(el('div', 'btn', 'Устроиться', b), () => { S.job = { key: poi.key, name: poi.name }; this.dirty = 1; toast('Вы приняты: ' + J.title); this.openJob(poi); });
+    const mine = S.job && S.job.key === key, inShift = jobs && jobs.sh;
+    if (!S.job) tap(el('div', 'btn', 'Устроиться', b), () => { S.job = { key, name: poi.name, pk: poi.key }; this.dirty = 1; toast('Вы приняты: ' + J.title); this.openJob(poi, key); });
     else if (mine) {
       const st = jobs ? jobs.status(J) : { ok: true };
       el('div', '', `<p style="margin:8px 0;font-size:13px;opacity:.9">${inShift ? 'Смена уже идёт.' : st.ok ? '✅ Сегодня рабочий день, смена в графике — оплата за активную работу.' : '⚠ ' + st.msg}<br>Оплата = ставка × игровые минуты <b>активной работы</b> (простой и обед не оплачиваются) + бонус за качество.</p>`, b);
-      tap(el('div', 'btn' + (inShift ? ' off' : ''), inShift ? 'Смена уже идёт' : st.ok ? 'Начать смену' : 'Начать (без оплаты вне графика)', b), () => { if (jobs.sh) return; p.close(); jobs.begin(poi); });
-      const q = el('div', 'btn r', 'Уволиться', b); q.style.marginTop = '8px'; tap(q, () => { if (jobs && jobs.sh) jobs.end('quit'); S.job = null; this.dirty = 1; this.openJob(poi); });
-    } else { el('div', '', `<p>Вы уже работаете: ${JOBS[S.job.key].title}. Чтобы сменить работу, сначала увольтесь.</p>`, b); const q = el('div', 'btn r', 'Уволиться', b); tap(q, () => { S.job = null; this.dirty = 1; this.openJob(poi); }); }
+      tap(el('div', 'btn' + (inShift ? ' off' : ''), inShift ? 'Смена уже идёт' : st.ok ? 'Начать смену' : 'Начать (без оплаты вне графика)', b), () => { if (jobs.sh) return; p.close(); jobs.begin(poi, key); });
+      const q = el('div', 'btn r', 'Уволиться', b); q.style.marginTop = '8px'; tap(q, () => { if (jobs && jobs.sh) jobs.end('quit'); S.job = null; this.dirty = 1; this.openJob(poi, key); });
+    } else { el('div', '', `<p>Вы уже работаете: ${JOBS[S.job.key].title}. Чтобы сменить работу, сначала увольтесь.</p>`, b); const q = el('div', 'btn r', 'Уволиться', b); tap(q, () => { S.job = null; this.dirty = 1; this.openJob(poi, key); }); }
     el('div', '', '<p style="font-size:11px;opacity:.6;margin-top:10px">Игровые значения на основе медиан по Киеву (Work.ua, Київпастранс, 10.2026). 1 игровая минута = 1 секунда; полная смена 8 ч ≈ 480 с.</p>', b);
     p.open();
   }

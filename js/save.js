@@ -34,7 +34,7 @@ export class SaveSystem {
     const stolen = [];
     for (const c of city.cars) if (!c.dead && c.stolen && !c.player && !c.job) stolen.push(this.carDesc(c));
     const drv = crime.driving ? this.carDesc(crime.driving) : null;
-    const sh = jobs.sh, job = sh && sh.impl && !sh.impl.drive ? { key: sh.key, px: sh.poi.x, pz: sh.poi.z, worked: sh.worked, ot: sh.ot, idle: sh.idle, off: sh.off, brk: sh.brk, brkUsed: sh.brkUsed, brkDone: sh.brkDone, bonus: sh.bonus, pen: sh.pen, done: sh.done, log: sh.log.slice(-30), startAbs: sh.startAbs, startWk: sh.startWk, otAsked: sh.otAsked } : null;
+    const sh = jobs.sh, job = sh && sh.impl && !sh.impl.drive ? { key: sh.key, pk: sh.poi.key, px: sh.poi.x, pz: sh.poi.z, worked: sh.worked, ot: sh.ot, idle: sh.idle, off: sh.off, brk: sh.brk, brkUsed: sh.brkUsed, brkDone: sh.brkDone, bonus: sh.bonus, pen: sh.pen, done: sh.done, log: sh.log.slice(-30), startAbs: sh.startAbs, startWk: sh.startWk, otAsked: sh.otAsked } : null;
     let place = ''; try { place = this.placeName ? this.placeName() : ''; } catch (e) {}
     return { v: VER, at: Date.now(), P: { x: r1(P.x), y: r2(P.y), z: r1(P.z), yaw: r2(P.yaw), pitch: r2(P.pitch), fly: P.fly ? 1 : 0 }, S, clock: { t: clock.t, wk: clock.wk, day: clock.day | 0 },
       crime: { heat: r2(crime.heat) }, drv, stolen, job, meta: { place } };
@@ -76,8 +76,8 @@ export class SaveSystem {
     for (const d of s.stolen || []) { const c = city.spawnSaved && city.spawnSaved(d); if (c) { c.stolen = true; c.keep = true; } }
     if (s.drv && city.spawnSaved) { const c = city.spawnSaved(s.drv); if (c) { c.stolen = true; c.keep = true; crime.enterCar(c, true); P.x = c.x; P.z = c.z; P.y = s.P.y; P.eye = P.y + 1.7; } }
     if (s.job && jobs.pois) {
-      const poi = jobs.pois.items.find(p => p.key === s.job.key && Math.hypot(p.x - s.job.px, p.z - s.job.pz) < 5);
-      if (poi) { jobs.begin(poi); const sh = jobs.sh; if (sh) { for (const k of ['worked', 'ot', 'idle', 'off', 'brk', 'brkUsed', 'brkDone', 'bonus', 'pen', 'done', 'startAbs', 'startWk', 'otAsked']) if (s.job[k] !== undefined) sh[k] = s.job[k]; sh.log = s.job.log || []; } }
+      const pk = s.job.pk || s.job.key, poi = jobs.pois.items.find(p => p.key === pk && Math.hypot(p.x - s.job.px, p.z - s.job.pz) < 5);   // pk: venue of a chain job (saves before 10.2026 have only key)
+      if (poi) { jobs.begin(poi, s.job.key); const sh = jobs.sh; if (sh) { for (const k of ['worked', 'ot', 'idle', 'off', 'brk', 'brkUsed', 'brkDone', 'bonus', 'pen', 'done', 'startAbs', 'startWk', 'otAsked']) if (s.job[k] !== undefined) sh[k] = s.job[k]; sh.log = s.job.log || []; } }
     }
   }
 }

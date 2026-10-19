@@ -12,6 +12,8 @@ export const CAT_INFO = {
   atb:      { icon: '🛒', brand: 0x2f6fc0, theme: 'market',   svc: 'shop' },
   epicentr: { icon: '🛠', brand: 0xf4c418, theme: 'epicentr',      svc: 'shop' },
   sushi:    { icon: '🍣', brand: 0xc4143c, theme: 'sushi',   svc: 'shop' },
+  apteka:   { icon: '💊', brand: 0x0f8a4a, theme: 'apteka',   svc: 'shop' },
+  kava:     { icon: '☕', brand: 0x5a3a28, theme: 'kava',     svc: 'shop' },
   dvornik:  { icon: '🧹', brand: 0x4a8f4e, theme: 'util',     svc: 'job' },
   gruzchik: { icon: '📦', brand: 0x9b7b4b, theme: 'depot',    svc: 'job' },
   kurier:   { icon: '🛵', brand: 0xe0533d, theme: 'util',     svc: 'job' },
@@ -20,6 +22,7 @@ export const CAT_INFO = {
   tram:     { icon: '🚋', brand: 0xc23b2e, theme: 'depot',    svc: 'job' },
   sizo:     { icon: '⛓', brand: undefined, theme: 'prison',   svc: 'sizo' },
 };
+const VAC = (k) => { const n = Object.values(JOBDEFS).filter(J => J.venue === k); return n.length ? `<br>💼 вакансии: ${n.map(J => J.title.replace(/ \(.*\)| McDonald's| Сільпо| АТБ/g, '') + ' ₴' + J.hourly).join(', ')}` : ''; };
 export const GROUPS = { food: ['🍽', 'Еда'], shop: ['🛒', 'Магазины'], job: ['💼', 'Работа'], special: ['⛓', 'СИЗО'] };
 const hex2rgb = h => [(h >> 16 & 255) / 255, (h >> 8 & 255) / 255, (h & 255) / 255];
 
@@ -46,6 +49,13 @@ function drawSign(g, c, img) {
   } else if (key === 'epicentr') {
     g.fillStyle = '#f4c418'; g.fillRect(0, 0, W, H); tile(5, 0.5); g.fillStyle = '#006e37'; g.fillRect(0, H - 32, W, 32);
     text('ЕПІЦЕНТР', 256, 48, '#1a1a1a', 420, 66); g.fillStyle = '#f4c418'; g.fillRect(0, H - 32, W, 5);
+  } else if (key === 'apteka') {   // green pharmacy cross + white lettering
+    g.fillStyle = '#0f8a4a'; g.fillRect(0, 0, W, H); tile(3, 0.35); g.fillStyle = '#fff'; g.fillRect(36, 54, 64, 20); g.fillRect(58, 32, 20, 64);
+    g.strokeStyle = '#fff'; g.lineWidth = 5; g.strokeRect(6, 6, W - 12, H - 12); text(c.sign || 'АПТЕКА', 300, 66, '#fff', 360, 60);
+  } else if (key === 'kava') {   // brown board, cream lettering, a coffee cup
+    g.fillStyle = '#3b2418'; g.fillRect(0, 0, W, H); tile(2, 0.4); g.fillStyle = '#f1e2c6'; g.beginPath(); g.moveTo(40, 46); g.lineTo(96, 46); g.lineTo(90, 100); g.lineTo(46, 100); g.closePath(); g.fill();
+    g.strokeStyle = '#f1e2c6'; g.lineWidth = 6; g.beginPath(); g.arc(100, 66, 12, -1.4, 1.4); g.stroke(); g.lineWidth = 3; for (const x of [56, 70, 84]) { g.beginPath(); g.moveTo(x, 38); g.quadraticCurveTo(x + 6, 28, x, 18); g.stroke(); }
+    text(c.sign || "КАВ'ЯРНЯ", 300, 66, '#f1e2c6', 360, 56); g.fillStyle = '#c8945a'; g.fillRect(0, H - 8, W, 8);
   } else {
     g.fillStyle = col; g.fillRect(0, 0, W, H); g.strokeStyle = '#fff'; g.lineWidth = 8; g.strokeRect(6, 6, 500, 116);
     text(c.sign, 256, 68, (key === 'taxi') ? '#1a1a1a' : '#fff', 450, 64);
@@ -180,7 +190,7 @@ export class PoiLayer {
       if (!arr.length) el('div', '', 'Нет точек', list);
       arr.forEach(({ poi, dist }) => {
         const r = el('div', 'row', '', list), tr = this.track === poi;
-        el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'} · ${poi.real ? 'реальный объект OSM' : 'игровая точка (по модели)'}${poi.key === 'sizo' ? ' · вул. Дегтярівська, 13' : ''}${JOBDEFS[poi.key] ? `<br>₴${JOBDEFS[poi.key].hourly}/ч · ${scheduleText(JOBDEFS[poi.key])}` : ''}</small>`, r);
+        el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'} · ${poi.real ? 'реальный объект OSM' : 'игровая точка (по модели)'}${poi.key === 'sizo' ? ' · вул. Дегтярівська, 13' : ''}${VAC(poi.key)}${JOBDEFS[poi.key] ? `<br>₴${JOBDEFS[poi.key].hourly}/ч · ${scheduleText(JOBDEFS[poi.key])}` : ''}</small>`, r);
         tap(el('span', 'btn g', tr ? 'снять' : 'метка', r), () => { this.setTrack(tr ? null : poi); draw(); });
         if (!this.ctx.noTeleport) tap(el('span', 'btn', 'ТП', r), () => { pn.close(); this.goto(poi); });
       });

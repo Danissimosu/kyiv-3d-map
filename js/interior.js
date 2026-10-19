@@ -4,8 +4,8 @@
 //    U-shaped staircase, railings; all in ONE atlas material (no lights; baked vertex shading). Disposed when far.
 import * as THREE from 'three';
 import { makeInteriorAtlas, INT_RECT } from './textures.js';
-const SHOP_THEMES = new Set(['sushi', 'market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr']);
-import { STYLE, classify, assignTypes, furnish, homeTypes, forcePiece } from './rooms.js';
+const SHOP_THEMES = new Set(['sushi', 'market', 'fastfood', 'dining', 'diy', 'mcd', 'puzata', 'silpo', 'epicentr', 'apteka', 'kava']);
+import { STYLE, classify, assignTypes, furnish, furnishCenter, homeTypes, forcePiece } from './rooms.js';
 
 export const DOOR_W = 1.6, DOOR_H = 2.3, WALL_T = 0.3, SLAB = 0.25;
 const DOOR_W_IN = 1.6;
@@ -215,7 +215,7 @@ export class InteriorManager {
     if (p.tile.alive) this.world.setDoorLeaf(p, true);
     this.active.delete(p); this.stats.active = this.active.size;
   }
-  disposeLevel(I, k) { const L = I.levels.get(k); if (!L) return; this.world.removeOwner(L.owner); I.group.remove(L.mesh); L.mesh.geometry.dispose(); if (L.dmesh) { I.group.remove(L.dmesh); L.dmesh.geometry.dispose(); L.dmesh.dispose(); } if (L.fmesh) { I.group.remove(L.fmesh); L.fmesh.geometry.dispose(); L.fmesh.dispose(); } I.levels.delete(k); }
+  disposeLevel(I, k) { const L = I.levels.get(k); if (!L) return; this.world.removeOwner(L.owner); I.group.remove(L.mesh); L.mesh.geometry.dispose(); if (L.dmesh) { I.group.remove(L.dmesh); L.dmesh.geometry.dispose(); L.dmesh.dispose(); } if (L.fmesh) { I.group.remove(L.fmesh); L.fmesh.geometry.dispose(); L.fmesh.dispose(); } if (L.smesh) { I.group.remove(L.smesh); L.smesh.geometry.dispose(); L.smesh.material.map.dispose(); L.smesh.material.dispose(); } if (I.spots) delete I.spots[k]; I.levels.delete(k); }
 
   // ------------------------------------------------------------------ activation: shell + stairs + partition
   activate(p) {
@@ -330,8 +330,8 @@ export class InteriorManager {
     I.rooms = rooms; I.leafAt = leafAt; I.toXZ = toXZ; I.uvOf = uvOf;
     I.cat = p.poi ? p.poi.theme : classify(p.kind, hash01(p.seed * 0.37)); I.brand = p.poi ? p.poi.brandRGB.map(c => 0.55 + 0.45 * c) : [0.75 + 0.25 * hash01(p.seed + 1.1), 0.75 + 0.25 * hash01(p.seed + 2.3), 0.75 + 0.25 * hash01(p.seed + 3.7)];
     // keep-clear spots for furniture (uv): door, doorways, stairs
-    const clear = [[...uvOf(inPt[0], inPt[1]), 2.0]];
-    if (p.poi) { I.sp = [dIn[0] - d.nx * 2.7, dIn[1] - d.nz * 2.7]; clear.push([...uvOf(I.sp[0], I.sp[1]), 1.5]); }   // service point (counter / job desk) stays free
+    const clear = [[...uvOf(inPt[0], inPt[1]), 2.0]]; I.inPt = inPt;
+    if (p.poi) { I.sp = [dIn[0] - d.nx * 2.7, dIn[1] - d.nz * 2.7]; I.sp0 = I.sp.slice(); if (!hall) clear.push([...uvOf(I.sp[0], I.sp[1]), 1.5]); }   // service point (counter / job desk); in sales halls it moves to the counter once the hall is furnished   // service point (counter / job desk) stays free
     for (const pc of pieces) if (pc.l) { const m = uvOf((pc.x1 + pc.x2) / 2, (pc.z1 + pc.z2) / 2); clear.push([m[0], m[1], 1.45]); }
     if (stair) for (let a = -1.6; a <= stair.A + 1.0; a += 0.8) for (let b = -1.0; b <= stair.B + 1.0; b += 0.8) { const c = uvOf(stair.c[0] + a * stair.eax + b * stair.ebx, stair.c[1] + a * stair.eaz + b * stair.ebz); clear.push([c[0], c[1], 0.95]); }
     I.clear = clear;
@@ -513,12 +513,14 @@ export class InteriorManager {
       vv(ac, stair.bw + 0.075, ac, stair.B, Fk, wt); vv(stair.A, 0, stair.A, stair.B, Fk, yM); vv(stair.Lf, 0, stair.A, 0, Fk, yM); vv(stair.Lf, stair.B, stair.A, stair.B, Fk, yM);
     }
     // ---- furniture: boxes in the uv frame, rendered as one InstancedMesh per level
-    const boxes = [];
+    const boxes = [], spots = [], signs = [];
     for (let ri = 0; ri < rooms.length; ri++) {
       const R = rooms[ri]; if (R.area < 6) continue;
       const placed = [];
-      const ctx = { rng: rngFrom(p.seed * 131 + k * 17 + ri), inside: (u, v) => { const q = I.toXZ(u, v); return I.inside_fn(q[0], q[1]); }, clear: I.clear, placed };
-      const nb = furnish(types[ri], R, ctx); for (const b of nb) { b.ri = ri; boxes.push(b); }
+      const ctx = { rng: rngFrom(p.seed * 131 + k * 17 + ri), inside: (u, v) => { const q = I.toXZ(u, v); return I.inside_fn(q[0], q[1]); }, clear: I.clear, placed, spots, signs, ceil: ceilY - Fk, mob: this.mob, door: k === 0 && R.door && I.inPt ? uvOf2(I, I.inPt) : null };
+      const nb = furnish(types[ri], R, ctx); for (const b of nb) { b.ri = ri; boxes.push(b); } if (ctx.variant) (I.variant = I.variant || {})[k + '_' + ri] = ctx.variant;
+      // commercial halls: centre islands (gondolas / racks / tables) on a grid with aisles (fewer + lighter on mobile)
+      if (R.area >= 30 && !isHome) for (const b of furnishCenter(types[ri], R, ctx)) { b.ri = ri; boxes.push(b); }
     }
     if (isHome) this._homeSpots(I, k, types, boxes, rng);
     let fmesh = null;
@@ -547,7 +549,21 @@ export class InteriorManager {
       g.setAttribute('aRect', new THREE.InstancedBufferAttribute(ra, 4)); dmesh.instanceColor = new THREE.InstancedBufferAttribute(ic, 3);
       I.group.add(dmesh);
     }
-    const Lv = { mesh, fmesh, owner, doors, dmesh, Fk }; I.levels.set(k, Lv);
+    // NPC / job spots (world coords; spots inside solid furniture or outside the hall are dropped) + solid footprints (uv) for walk checks
+    const solid = boxes.filter(b => b.solid).map(b => [b.u0, b.u1, b.v0, b.v1]), inSolid = (u, v, m) => solid.some(r => u > r[0] - m && u < r[1] + m && v > r[2] - m && v < r[3] + m);
+    const dUV = uvOf2(I, I.inPt || [0, 0]), wsp = [];
+    for (const q of spots) {
+      if (inSolid(q.u, q.v, 0.22)) continue; const x = q.u * ux + q.v * vx, z = q.u * uz + q.v * vz; if (!I.inside_fn(x, z)) continue;
+      if (I.inPt && Math.hypot(q.u - dUV[0], q.v - dUV[1]) < 1.3) continue;
+      const dx = q.du * ux + q.dv * vx, dz = q.du * uz + q.dv * vz; wsp.push({ k: q.k, x, z, y: Fk, u: q.u, v: q.v, yaw: Math.atan2(dx, dz), seat: q.seat, piece: q.piece, pid: q.pid, busy: null });
+    }
+    I.spots = I.spots || {}; I.spots[k] = wsp; I.solidUV = I.solidUV || {}; I.solidUV[k] = solid;
+    if (k === 0 && p.poi && I.sp0) {   // shops / food halls: the E point (buy / vacancies) is the customer side of the main counter / checkout
+      let best = null; for (const kk of SP_PRI) { best = wsp.find(q => q.k === kk); if (best) break; }
+      I.sp = best ? [best.x, best.z] : I.sp0.slice(); I.spAt = best || null; if (best) best.player = true;
+    }
+    let smesh = null; if (signs.length) { smesh = signMesh(signs, I, Fk); I.group.add(smesh); }
+    const Lv = { mesh, fmesh, owner, doors, dmesh, Fk, smesh }; I.levels.set(k, Lv);
     if (dmesh) this._poseDoors(Lv, true);
   }
 }
@@ -576,4 +592,29 @@ function furnBase() {
   const nr = g.attributes.normal, col = new Float32Array(nr.count * 3);
   for (let i = 0; i < nr.count; i++) { const y = nr.getY(i), x = Math.abs(nr.getX(i)); const v = y > 0.5 ? 1.0 : y < -0.5 ? 0.45 : (x > 0.5 ? 0.78 : 0.66); col[3 * i] = col[3 * i + 1] = col[3 * i + 2] = v; }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.deleteAttribute('normal'); return FURN = g;
+}
+
+const SP_PRI = ['pay', 'cust', 'line', 'pickup'];
+const uvOf2 = (I, q) => [q[0] * I.ux + q[1] * I.uz, q[0] * I.vx + q[1] * I.vz];
+// hanging / wall signs of a hall: all labels of one level in ONE canvas atlas + ONE mesh (two back-to-back quads per sign, readable from both sides)
+function signMesh(signs, I, Fk) {
+  const N = Math.min(signs.length, 24), cols = 2, rows = Math.ceil(N / cols), CW = 512, CH = 96, cv = document.createElement('canvas'); cv.width = CW * cols; cv.height = Math.max(1, CH * rows);
+  const g = cv.getContext('2d'), pal = { silpo: ['#f27820', '#ffffff'], market: ['#2f6fc0', '#ffffff'], epicentr: ['#006e37', '#ffd200'], mcd: ['#da291c', '#ffc72c'], puzata: ['#3e6e3e', '#fff6e0'], sushi: ['#1b1b1d', '#ffffff'], apteka: ['#0f8a4a', '#ffffff'], kava: ['#3b2418', '#f3e3c3'] }[I.cat] || ['#334455', '#ffffff'];
+  const pos = [], uv = [], idx = []; const { ux, uz, vx, vz } = I;
+  for (let i = 0; i < N; i++) {
+    const s = signs[i], cx = (i % cols) * CW, cy = Math.floor(i / cols) * CH;
+    g.fillStyle = pal[0]; g.fillRect(cx + 2, cy + 2, CW - 4, CH - 4); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 4; g.strokeRect(cx + 8, cy + 8, CW - 16, CH - 16);
+    let fs = 54; g.font = `700 ${fs}px -apple-system,system-ui,sans-serif`; while (g.measureText(s.t).width > CW - 40 && fs > 20) { fs -= 3; g.font = `700 ${fs}px -apple-system,system-ui,sans-serif`; }
+    g.fillStyle = pal[1]; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s.t, cx + CW / 2, cy + CH / 2 + 2);
+    const x = s.u * ux + s.v * vx, z = s.u * uz + s.v * vz, nx = s.du * ux + s.dv * vx, nz = s.du * uz + s.dv * vz, nl = Math.hypot(nx, nz) || 1, Nx = nx / nl, Nz = nz / nl;
+    const w = Math.min(s.w, s.h * CW / CH), hw = w / 2, hh = s.h / 2, y = Fk + s.y, u0 = cx / cv.width, u1 = (cx + CW) / cv.width, v1 = 1 - cy / cv.height, v0 = 1 - (cy + CH) / cv.height;
+    for (const sg of [1, -1]) {   // front quad faces +N, back quad faces -N (r = N x up -> right vector)
+      const rx = Nz * sg, rz = -Nx * sg, ox = Nx * sg * 0.012, oz = Nz * sg * 0.012, b = pos.length / 3;
+      pos.push(x - rx * hw + ox, y - hh, z - rz * hw + oz, x + rx * hw + ox, y - hh, z + rz * hw + oz, x + rx * hw + ox, y + hh, z + rz * hw + oz, x - rx * hw + ox, y + hh, z - rz * hw + oz);
+      uv.push(u0, v0, u1, v0, u1, v1, u0, v1); idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    }
+  }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, color: 0xdddddd, fog: true })); m.matrixAutoUpdate = false; m.frustumCulled = false; m.name = 'signs'; return m;
 }
