@@ -95,7 +95,7 @@ export class Game {
     const { IS_TOUCH } = this.ctx; this.sv = el('div', 'svhud', '', document.body);
     this.sv.style.cssText = (IS_TOUCH ? 'font-size:11px;' : '') + 'position:fixed;left:50%;transform:translateX(-50%);top:calc(8px + env(safe-area-inset-top));z-index:6;display:flex;gap:8px;align-items:center;padding:3px 9px;background:rgba(12,18,26,.62);border-radius:12px;color:#fff;font:600 12px -apple-system,system-ui,sans-serif;pointer-events:none;font-variant-numeric:tabular-nums';
     const bar = (ic, c) => { const w = el('span', '', `<span>${ic}</span><span style="display:inline-block;width:${IS_TOUCH ? 24 : 46}px;height:7px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-left:3px"><i style="display:block;height:100%;width:100%;background:${c}"></i></span>`, this.sv); return w.querySelector('i'); };
-    this.bHp = bar('❤', '#e74c3c'); this.bFood = bar('🍖', '#e6a23c'); this.bWater = bar('💧', '#3fa7f0'); this.bEn = bar('⚡', '#f1d23c'); this.moneyEl = el('span', '', '', this.sv); this.clockEl = el('span', '', '', this.sv); this.clockEl.style.cssText = 'opacity:.85;font-size:11px';
+    this.bHp = bar('❤', '#e74c3c'); this.bFood = bar('🍖', '#e6a23c'); this.bWater = bar('💧', '#3fa7f0'); this.bEn = bar('⚡', '#f1d23c'); this.moneyEl = el('span', '', '', this.sv); this.clockEl = el('span', '', '', this.sv); this.clockEl.style.cssText = 'opacity:.85;font-size:11px'; this.clockEl.style.pointerEvents = 'auto'; if (IS_TOUCH) Object.assign(this.clockEl.style, { padding: '8px 4px', margin: '-8px -4px' }); this.clockEl.style.cursor = 'pointer'; this.clockEl.title = 'Что сейчас в Киеве'; tap(this.clockEl, () => this.timeInfo());
     if (IS_TOUCH) {   // iPhone: two compact rows (bars / money + clock) so the HUD never wraps into a tall column next to the minimap
       Object.assign(this.sv.style, { display: 'grid', gridTemplateColumns: 'repeat(4, auto)', columnGap: '7px', rowGap: '1px', padding: '3px 8px', whiteSpace: 'nowrap', justifyItems: 'center' });
       for (const e of this.sv.children) e.style.whiteSpace = 'nowrap';
@@ -275,6 +275,12 @@ export class Game {
     this.pois.setTrack(hit.poi, true); return hit.poi;
   }
   // ---------------------------------------------------------------- per-frame
+  timeInfo() {   // tap the HUD clock: real Kyiv time + what the hour means in game (sun, night dealers, transport)
+    const c = this.ctx.clock, h = c.hour, fm = x => { const m = Math.round((((x % 24) + 24) % 24) * 60); return m < 60 ? m + ' мин' : Math.floor(m / 60) + ' ч' + (m % 60 ? ' ' + (m % 60) + ' мин' : ''); };
+    const sun = h >= 6.5 && h < 19.5, night = h >= 22 || h < 5, noBus = h >= 23 || h < 6;
+    const msg = `🕒 Киев ${c.text} · ${c.dateText} · ` + (sun ? `☀ закат ≈ 19:30 (через ${fm(19.5 - h)})` : `🌙 рассвет ≈ 06:30 (через ${fm(6.5 - h)})`) + ' · ' + (night ? `ночные точки до 05:00 (ещё ${fm(5 - h)})` : `ночные точки с 22:00 (через ${fm(22 - h)})`) + (noBus ? ' · 🚏 транспорт с 06:00 — пока такси' : '');
+    toast(msg, 5000); return msg;
+  }
   update(P, dt) {
     if (UI.modal && !this.dead) return;
     const S = this.S; this.t += dt;
