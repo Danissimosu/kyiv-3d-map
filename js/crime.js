@@ -74,7 +74,7 @@ export class Crime {
     else { toast('🚨 Охрана подняла тревогу!'); this.addHeat(2.2, 'кража в магазине'); }
   }
   // ---------------------------------------------------------------- police
-  _clearCops() { this.cops.length = 0; this.city.extra = this.city.extra.filter(a => a.guard); this.arrestM = 0; }
+  _clearCops() { this.cops.length = 0; this.city.extra = this.city.extra.filter(a => a.guard || a.dealer || a.pps); this.arrestM = 0; }
   _spawnCop(ax, az) {
     const P = this.P, a = Math.random() * 6.28, r = rnd(42, 70), x = ax !== undefined ? ax + rnd(-1.5, 1.5) : P.x + Math.cos(a) * r, z = az !== undefined ? az + rnd(-1.5, 1.5) : P.z + Math.sin(a) * r;
     const t = this.world.tiles.get(Math.floor(x / 500) + '_' + Math.floor(z / 500)); if (!t || !t.h) return;

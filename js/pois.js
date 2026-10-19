@@ -157,6 +157,7 @@ export class PoiLayer {
     const x0 = cx - W / 2 / k - 20, x1 = cx + W / 2 / k + 20, z0 = cz - H / 2 / k - 20, z1 = cz + H / 2 / k + 20;
     const showAll = k >= 0.1, r = big ? (k > 0.3 ? 6 : 4) : 3.5;
     g.save(); g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (this.layers) for (const f of this.layers) { try { f(g, W, H, cx, cz, k, big, x0, x1, z0, z1); } catch (e) { console.warn('map layer', e); } }   // extra marker layers (dealers.js)
     if (this.extra) for (const m of this.extra) { if (m.x < x0 || m.x > x1 || m.z < z0 || m.z > z1) continue; const sx = W / 2 + (m.x - cx) * k, sy = H / 2 + (m.z - cz) * k; g.fillStyle = m.col || '#ffd966'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.arc(sx, sy, big ? 10 : 7, 0, 7); g.fill(); g.stroke(); g.font = (big ? 14 : 10) + 'px sans-serif'; g.fillStyle = '#000'; g.fillText(m.icon || '•', sx, sy + 1); }
     for (const p of this.items) {
       if (p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1) continue;

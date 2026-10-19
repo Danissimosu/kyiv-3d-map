@@ -4,6 +4,7 @@ import { Game } from './game.js';
 import { Crime } from './crime.js';
 import { Transit } from './transit.js';
 import { GameClock } from './clock.js';
+import { Dealers } from './dealers.js';
 import { Jobs } from './jobs.js';
 import { UI } from './ui.js';
 import { Menu } from './menu.js';
@@ -173,6 +174,7 @@ async function main() {
   const jobs = new Jobs({ P, world, scene, pois, city, clock, game, crime, transit, qs, keys, T, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
   const taxiApp = new TaxiApp({ P, city, world, game, jobs, transit, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit) }); game.taxi = taxiApp;
   const rent = new Rent({ game, world, scene, pois, clock, P, ll2xz, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), jobs, crime, transit, taxi: taxiApp, getSaves: () => saves });
+  const dealers = new Dealers({ P, world, scene, city, pois, game, crime, transit, clock, qs, IS_TOUCH });
   if (MENU) saves = new SaveSystem({ rent, taxi: taxiApp, P, game, crime, jobs, transit, clock, city, pois, world, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), START, defaults: () => game.defaults(),
     placeName: () => { let b = null, bd = 1e9; for (const l of LANDMARKS) { const [x, z] = lmXZ(l); const d = Math.hypot(x - P.x, z - P.z); if (d < bd) { bd = d; b = l[0]; } } return b && bd < 900 ? 'у: ' + b.replace(/ \(старт\)/, '') : ''; } });
   UI.onModal = n => { if (!n && !IS_TOUCH && started && !game.dead) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} };
@@ -325,7 +327,7 @@ async function main() {
   function physics(dt) {
     const k = keys; const f = Math.max(-1, Math.min(1, (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) - T.jy)), s = Math.max(-1, Math.min(1, (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + T.jx));
     const run = k.ShiftLeft || k.ShiftRight || T.run; const jumpKey = k.Space || T.jump, downKey = k.ControlLeft || k.KeyC || T.down;
-    let sp = P.fly ? (run ? FLYFAST : FLY) : (run ? RUN : WALK); if (!P.fly && P.inWater) sp *= 0.45; if (P.slow && !P.fly) sp *= P.slow;
+    let sp = P.fly ? (run ? FLYFAST : FLY) : (run ? RUN : WALK); if (!P.fly && P.inWater) sp *= 0.45; if (P.slow && !P.fly) sp *= P.slow; if (!P.fly && run) { if (P.tired) sp *= P.tired; if (P.boost) sp *= P.boost; } if (P.frozen) sp = 0;
     let wx = 0, wz = 0;
     if (P.fly) { const cp = Math.cos(P.pitch); fwd.set(-Math.sin(P.yaw) * cp, Math.sin(P.pitch), -Math.cos(P.yaw) * cp); wx = fwd.x * f + Math.cos(P.yaw) * s; wz = fwd.z * f - Math.sin(P.yaw) * s; }
     else { wx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s; wz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s; }
@@ -365,7 +367,7 @@ async function main() {
     if (spawned) world.update(P, dt, MOB ? 3 : 6);
     if (saves && saves.pending) saves.applyPending();
     if (spawned && paused && menuMain) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); transit.update(P, dt); }   // the menu backdrop shows moving traffic and transit
-    else if (spawned && !paused) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); transit.update(P, dt); jobs.update(P, dt); taxiApp.update(P, dt); rent.update(P, dt); }
+    else if (spawned && !paused) { world.interiors.update(P, dt, MOB ? 3 : 5); city.update(P, dt); clock.update(); skyT += dt; if (skyT > 1) { skyT = 0; applySky(); } pois.update(P, dt); game.update(P, dt); crime.update(P, dt); dealers.update(P, dt); transit.update(P, dt); jobs.update(P, dt); taxiApp.update(P, dt); rent.update(P, dt); }
     if (!spawned) {
       // wait until the ring of tiles around the spawn is built
       const sx = SPX, sz = SPZ;
@@ -380,7 +382,7 @@ async function main() {
       else if (started && !paused && !mapOpen && !UI.modal && !game.dead && !crime.driving && !transit.busy && !taxiApp.busy) physics(dt);
     }
     const bob = 0; const targetEye = P.y + EYE; P.eye += (targetEye - P.eye) * Math.min(1, dt * (P.grounded ? 18 : 40)); if (P.fly) P.eye = targetEye;
-    camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0);
+    camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch + (P.wob ? P.wob.p : 0), P.yaw + (P.wob ? P.wob.y : 0), P.wob ? P.wob.r : 0);
     sky.position.copy(camera.position); fx.update(P, dt); skyfx.update(camera, su.sunPosition.value, skySun, skyCol, fogCol);
     // sun shadow follows the player (snapped to texels)
     { const q = (2 * SC) / SMAP; const sx = Math.round(P.x / q) * q, sz = Math.round(P.z / q) * q, sy = Math.round(P.y / q) * q;
@@ -415,7 +417,7 @@ async function main() {
       тайлов: ${world.loadedCount} · зданий: ${world.stats.buildings}<br>${city.hudLine()}<br>${transit.hudLine()}`;
     $('hudtxt').innerHTML = IS_TOUCH && !hudOpen ? `${fps.toFixed(0)} fps · Q${qLevel}` : full;
   }
-  window.__kyiv = { rent, get saves() { return saves; }, post, fx, skyfx, city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; }, taxi: taxiApp, get saves() { return saves; }, get menu() { return menu; }, openPause, autosave, get paused() { return paused; } };
+  window.__kyiv = { dealers, rent, get saves() { return saves; }, post, fx, skyfx, city, pois, game, crime, transit, clock, jobs, applySky, quality: { get level() { return qLevel; }, set: l => setLevel(l), gov }, P, keys, T, simulate, renderNow, gotoDoor, interiors: world.interiors, world, camera, scene, renderer, teleport, spawn, ll2xz, get ready() { return spawned; }, setStarted(v) { started = v; }, taxi: taxiApp, get saves() { return saves; }, get menu() { return menu; }, openPause, autosave, get paused() { return paused; } };
   requestAnimationFrame(frame);
 }
 main().catch(e => { console.error(e); const m = document.getElementById('msg'); if (m) m.textContent = 'Ошибка: ' + e.message; });

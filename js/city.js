@@ -22,7 +22,15 @@ export function venueWalkable(I, k, x0, z0, x1, z1, m = 0.3) {
   const R = (I.solidUV && I.solidUV[k]) || [], a = I.uvOf(x0, z0), b = I.uvOf(x1, z1), L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 0.25));
   for (let i = 1; i < n; i++) { const u = a[0] + (b[0] - a[0]) * i / n, v = a[1] + (b[1] - a[1]) * i / n; for (const r of R) if (u > r[0] - m && u < r[1] + m && v > r[2] - m && v < r[3] + m) return false;
     if (I.toXZ && I.inside_fn) { const q = I.toXZ(u, v); if (!I.inside_fn(q[0], q[1])) return false; } }
+  if (I.pieces && I.pieces.length) for (const pc of I.pieces) if (!pc.l && segCross(x0, z0, x1, z1, pc.x1, pc.z1, pc.x2, pc.z2, 0.2)) return false;   // partition walls (doorways = lintel pieces stay open)
   return true;
+}
+// does segment A (a->b) pass within r of wall segment W (c->d)?  (proper crossing, or an endpoint of A closer than r to W)
+const sd = (px, pz, ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, l = dx * dx + dz * dz; let t = l ? ((px - ax) * dx + (pz - az) * dz) / l : 0; t = Math.max(0, Math.min(1, t)); return Math.hypot(px - ax - dx * t, pz - az - dz * t); };
+export function segCross(ax, az, bx, bz, cx, cz, dx, dz, r) {
+  const o = (px, pz, qx, qz, rx, rz) => Math.sign((qx - px) * (rz - pz) - (qz - pz) * (rx - px));
+  if (o(ax, az, bx, bz, cx, cz) * o(ax, az, bx, bz, dx, dz) < 0 && o(cx, cz, dx, dz, ax, az) * o(cx, cz, dx, dz, bx, bz) < 0) return true;
+  return sd(bx, bz, cx, cz, dx, dz) < r || sd(cx, cz, ax, az, bx, bz) < r * 0.5 || sd(dx, dz, ax, az, bx, bz) < r * 0.5;
 }
 export function venuePed(I, p, sp, staff) {
   const uni = UNIFORM[I.cat] || [0x334455, 0x222222];
@@ -483,6 +491,10 @@ export class City {
       for (const [du, dv] of [[0, 0], [m, 0], [-m, 0], [0, m], [0, -m]]) { const q = I.toXZ(u + du, v + dv); if (!I.inside_fn(q[0], q[1])) { ok = false; break; } } if (!ok) blk[j * gw + i] = 1; }
     for (const r of sol) { const i0 = Math.max(0, Math.floor((r[0] - m - u0) / cs)), i1 = Math.min(gw - 1, Math.floor((r[1] + m - u0) / cs)), j0 = Math.max(0, Math.floor((r[2] - m - v0) / cs)), j1 = Math.min(gh - 1, Math.floor((r[3] + m - v0) / cs));
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const u = u0 + (i + 0.5) * cs, v = v0 + (j + 0.5) * cs; if (u > r[0] - m && u < r[1] + m && v > r[2] - m && v < r[3] + m) blk[j * gw + i] = 1; } }
+    if (I.pieces) for (const pc of I.pieces) { if (pc.l) continue;   // partition walls of multi-room interiors: rasterise (doorways stay open)
+      const L = Math.hypot(pc.x2 - pc.x1, pc.z2 - pc.z1), n = Math.max(1, Math.ceil(L / (cs * 0.5))), rr = Math.ceil(0.17 / cs) + 1;
+      for (let k = 0; k <= n; k++) { const x = pc.x1 + (pc.x2 - pc.x1) * k / n, z = pc.z1 + (pc.z2 - pc.z1) * k / n, w = I.uvOf(x, z), ci = Math.floor((w[0] - u0) / cs), cj = Math.floor((w[1] - v0) / cs);
+        for (let j = cj - rr; j <= cj + rr; j++) for (let i = ci - rr; i <= ci + rr; i++) { if (i < 0 || j < 0 || i >= gw || j >= gh) continue; const q = I.toXZ(u0 + (i + 0.5) * cs, v0 + (j + 0.5) * cs); if (sd(q[0], q[1], pc.x1, pc.z1, pc.x2, pc.z2) < 0.17) blk[j * gw + i] = 1; } } }
     const F = { u0, v0, cs, gw, gh, blk, dist: new Uint16Array(N).fill(65535) };
     const d = I.uvOf(I.inPt[0], I.inPt[1]), c0 = this._freeCell(F, d[0], d[1], 6); if (c0 < 0) return null;
     const qu = new Int32Array(N); let h = 0, t = 0; qu[t++] = c0; F.dist[c0] = 0;
@@ -661,7 +673,7 @@ export class City {
     // pedestrians
     const pm = this.pedMesh, M = this._m || (this._m = new THREE.Matrix4()), q = this._q || (this._q = new THREE.Quaternion()), pv = this._pv || (this._pv = new THREE.Vector3()), sv = this._sv || (this._sv = new THREE.Vector3()), up = this._up || (this._up = new THREE.Vector3(0, 1, 0)), qa = this._qa || (this._qa = new THREE.Quaternion()), xa = this._xa || (this._xa = new THREE.Vector3(1, 0, 0));
     let n = 0; const col = this._c || (this._c = new THREE.Color());
-    for (const a of this.peds.concat(this.extra)) {
+    for (const a of this.extra.concat(this.peds)) {   // extra (police, guards, dealers) first: never cut by the instance cap
       if (n >= pm.instanceMatrix.count) break;
       q.setFromAxisAngle(up, a.yaw); let y = a.y;
       if (a.state === 'down') { qa.setFromAxisAngle(xa, -1.5); q.multiply(qa); y += 0.18; } else if (a.state === 'stagger') { qa.setFromAxisAngle(xa, -0.25); q.multiply(qa); }

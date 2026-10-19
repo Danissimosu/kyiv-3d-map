@@ -1,6 +1,6 @@
 // Save system: two slots in localStorage ('manual' + 'auto'), full game snapshot (player, survival, money, inventory, wanted level,
 // job shift, game clock, stolen cars). Pure data in / out; main.js wires it to the live systems.
-import { WD, hhmm } from './clock.js';
+import { WD, hhmm, CLOCK_V, BASE_MONDAY, MON } from './clock.js';
 const KEYS = { manual: 'kyiv.save.manual.v1', auto: 'kyiv.save.auto.v1' };
 export const SLOT_NAMES = { manual: 'Ручное сохранение', auto: 'Автосохранение' };
 const VER = 1;
@@ -22,9 +22,16 @@ export function fmtWhen(at) {
 }
 export function describe(s) {
   const m = s.meta || {}, c = s.clock || {};
-  return { when: fmtWhen(s.at), money: Math.round(s.S.money), game: `${WD[c.wk | 0] || 'пн'} ${hhmm((c.t || 0) / 60)} · день ${(c.day | 0) + 1}`, hp: Math.round(s.S.hp), place: m.place || '' };
+  return { when: fmtWhen(s.at), money: Math.round(s.S.money), game: `${WD[c.wk | 0] || 'пн'} ${hhmm((c.t || 0) / 60)} · ` + (c.cv === CLOCK_V ? (q => `${q.getUTCDate()} ${MON[q.getUTCMonth()]}`)(new Date(BASE_MONDAY + (c.day | 0) * 86400000)) : `день ${(c.day | 0) + 1}`), hp: Math.round(s.S.hp), place: m.place || '' };
 }
 
+// v1 -> v2: shift the rental contract's day numbers / dates by d days (bill month index recomputed from the shifted day)
+export function migrateDays(S, d, clock) {
+  const H = S && S.home; if (!H || !d) return;
+  for (const k of ['signDay', 'lastDay']) if (typeof H[k] === 'number') H[k] += d;
+  for (const k of ['signU', 'endU']) if (typeof H[k] === 'number') H[k] += d * 86400000;
+  for (const b of H.bills || []) { if (typeof b.day === 'number') { b.day += d; const q = clock.dateOf(b.day); b.mi = q.y * 12 + q.m; } if (typeof b.pday === 'number') b.pday += d; }
+}
 export class SaveSystem {
   constructor(c) { Object.assign(this, c); this.lastAt = 0; }   // {P, game, crime, jobs, transit, clock, city, pois, teleport, world, defaults}
   carDesc(c) { return { x: r1(c.x), z: r1(c.z), y: r1(c.y), yaw: r2(c.yaw), kind: c.kind, model: c.model, color: c.col && c.col.getHex ? c.col.getHex() : undefined, dmg: c.dmg ? 1 : 0, fac: c.factory ? 1 : 0, hp: c.hp, taxi: c.taxi ? 1 : 0 }; }
@@ -36,7 +43,7 @@ export class SaveSystem {
     const drv = crime.driving ? this.carDesc(crime.driving) : null;
     const sh = jobs.sh, job = sh && sh.impl && !sh.impl.drive ? { key: sh.key, pk: sh.poi.key, px: sh.poi.x, pz: sh.poi.z, worked: sh.worked, ot: sh.ot, idle: sh.idle, off: sh.off, brk: sh.brk, brkUsed: sh.brkUsed, brkDone: sh.brkDone, bonus: sh.bonus, pen: sh.pen, done: sh.done, log: sh.log.slice(-30), startAbs: sh.startAbs, startWk: sh.startWk, otAsked: sh.otAsked } : null;
     let place = ''; try { place = this.placeName ? this.placeName() : ''; } catch (e) {}
-    return { v: VER, at: Date.now(), P: { x: r1(P.x), y: r2(P.y), z: r1(P.z), yaw: r2(P.yaw), pitch: r2(P.pitch), fly: P.fly ? 1 : 0 }, S, clock: { t: clock.t, wk: clock.wk, day: clock.day | 0 },
+    return { v: VER, at: Date.now(), P: { x: r1(P.x), y: r2(P.y), z: r1(P.z), yaw: r2(P.yaw), pitch: r2(P.pitch), fly: P.fly ? 1 : 0 }, S, clock: { t: clock.t, wk: clock.wk, day: clock.day | 0, cv: CLOCK_V, rt: clock.real ? 1 : 0 },
       crime: { heat: r2(crime.heat) }, drv, stolen, job, meta: { place } };
   }
   save(slot = 'manual') { if (!this.canSave()) return false; const ok = writeSlot(slot, this.snapshot()); if (ok) this.lastAt = performance.now(); return ok; }
@@ -54,14 +61,18 @@ export class SaveSystem {
   }
   newGame() {
     this._resetWorld(); const { game, clock, P } = this;
-    game.S = this.defaults(); game.dirty = 1; game.refresh(); clock.set(0, 8 * 60); clock.day = 0;
+    game.S = this.defaults(); game.dirty = 1; game.refresh(); if (clock.forced) clock.set(0, 8 * 60); else clock.toReal();
     const s = this.START; P.fly = false; this.teleport(s.x, s.z, s.yaw * Math.PI / 180, 0); if (this.rent) this.rent.afterLoad();
     this.dropClones && this.dropClones();
   }
   load(s) {
     this._resetWorld(); const { game, clock, P, crime, city } = this;
     game.S = Object.assign(this.defaults(), s.S); game.dirty = 1; game.refresh();
-    clock.wk = s.clock.wk | 0; clock.t = s.clock.t || 0; clock.day = s.clock.day | 0;
+    // clock: real-time mode keeps "now" (the save's time is history); manual/test mode restores it. v1 saves stored days since their new game:
+    // every day-stamped field of the rental contract is shifted onto the real calendar (old saves keep loading).
+    const c0 = s.clock || {}, wasV2 = c0.cv === CLOCK_V;
+    if (!clock.real || (wasV2 && !c0.rt)) { if (wasV2) { clock.manual(); clock.day = c0.day | 0; clock.wk = c0.wk | 0; clock.t = c0.t || 0; } else clock.set(c0.wk | 0, (c0.t || 0) / 60); }
+    if (!wasV2) migrateDays(game.S, clock.day - (c0.day | 0), clock);
     P.fly = !!s.P.fly; this.teleport(s.P.x, s.P.z, s.P.yaw, s.P.pitch);
     P.restoreY = P.wait ? s.P.y : undefined; P.y = s.P.y; P.eye = P.y + 1.7;     // exact height (teleport() lands on the highest surface = roofs)
     crime.heat = s.crime ? s.crime.heat : 0;

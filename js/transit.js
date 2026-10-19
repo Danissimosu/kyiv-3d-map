@@ -99,7 +99,7 @@ export class Transit {
     try { const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Kyiv', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()), g = k => parts.find(p => p.type === k)?.value;
       wk = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(g('weekday')); T = (+g('hour')) * 3600 + (+g('minute')) * 60 + (+g('second')); } catch (e) { const d = new Date(); wk = (d.getDay() + 6) % 7; T = d.getHours() * 3600 + d.getMinutes() * 60; }
     if (qs.has('clock')) { const m = qs.get('clock').split(':'); T = (+m[0]) * 3600 + (+m[1] || 0) * 60; }
-    if (ctx.clock) { wk = ctx.clock.wk; T = ctx.clock.t; }   // global game clock (60x); vehicles themselves move in real time, see update()
+    if (ctx.clock) { wk = ctx.clock.wk; T = ctx.clock.t; }   // global game clock (real Kyiv time 1:1 by default) — the GTFS timetable runs naturally
     this.cT = T; this.wk = Math.max(0, wk); this.rate = qs.has('trate') ? parseFloat(qs.get('trate')) : (qs.get('clockrate') === '0' ? 0 : 1); this.dayForce = qs.get('day'); this.last = performance.now();
   }
   get busy() { return !!(this.ride || this.drive); }
@@ -347,7 +347,7 @@ export class Transit {
     if (!hold) this.cT += (now - this.last) / 1000 * this.rate; this.last = now;
     const gc = this.ctx.clock;   // follow the game clock's weekday / time-of-day period (vehicles keep real-time speed: at 60x they would move at ~300 m/s)
     if (gc && this.rate === 1 && ((this.rs = (this.rs || 0) + dt) > 2)) { this.rs = 0; let df = ((gc.t - this.cT) % 86400 + 86400) % 86400; if (df > 43200) df -= 86400;
-      if (((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > 6 * 3600) && !this.busy && !this.near.some(v => Math.hypot(v.x - P.x, v.z - P.z) < 160)) { this.cT = gc.t; this.wk = gc.wk; this.veh.clear(); this.t1 = 9; } }   // silent: only while nobody rides and no vehicle is in sight
+      if (((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > (gc.real ? 120 : 6 * 3600)) && !this.busy && !this.near.some(v => Math.hypot(v.x - P.x, v.z - P.z) < 160)) { this.cT = gc.t; this.wk = gc.wk; this.veh.clear(); this.t1 = 9; } }   // silent: only while nobody rides and no vehicle is in sight
     if (this.cT >= 86400) { this.cT -= 86400; this.wk = (this.wk + 1) % 7; this._rekey(); this.t1 = 9; }   // real-time midnight (once per 24 real hours): today's trips become 'yesterday's' (key suffix .1) — nobody vanishes, the rider stays
     this.t1 += dt; if (this.t1 > (this.rate > 5 ? 0.25 : 1)) { this.t1 = 0; this.scan(); }
     this.t2 += dt; if (this.t2 > 0.4) { this.t2 = 0; this._updateStops(P); }
@@ -540,14 +540,15 @@ Object.assign(Transit.prototype, {
   },
   doorProvider() {   // "open doors" button: only when standing still in the stop zone
     const d = this.drive; if (!d || d.hold > 0 || d.k >= d.pat.n - 1) return null; const dist = d.pat.s[d.k + 1] - d.s;
-    if (Math.abs(dist) < 9 && d.vel < 0.5) return { label: 'Открыть двери (остановка ' + this.stops[d.pat.si[d.k + 1]].name + ')', run: () => this._openDoors() };
+    if ((Math.abs(dist) < 9 || this._atEnd(d)) && d.vel < 0.5) return { label: 'Открыть двери (остановка ' + this.stops[d.pat.si[d.k + 1]].name + ')', run: () => this._openDoors() };
     return null;
   },
   _openDoors() {
-    const d = this.drive; if (!d || d.hold > 0 || d.k >= d.pat.n - 1) return; const dist = d.pat.s[d.k + 1] - d.s; if (Math.abs(dist) >= 9 || d.vel >= 0.5) { toast('Остановитесь в зоне остановки'); return; }
+    const d = this.drive; if (!d || d.hold > 0 || d.k >= d.pat.n - 1) return; const dist = d.pat.s[d.k + 1] - d.s; if ((Math.abs(dist) >= 9 && !this._atEnd(d)) || d.vel >= 0.5) { toast('Остановитесь в зоне остановки'); return; }
     const j = this.jobs, prec = Math.abs(dist) < 3; const pay = prec ? 14 : 6; d.hold = 4.5; d.vel = 0; d.k++; d.served++; d.earned += pay; if (j) j.addBonus(pay, prec ? 'Точная остановка' : 'Остановка');
     toast(`🚏 ${this.stops[d.pat.si[d.k]].name}${prec ? ' · точно' : ''}`, 2200);
   },
+  _atEnd(d) { return d.k === d.pat.n - 2 && !d.tail && d.s >= Math.min(d.pat.s[d.pat.n - 1], this._sEnd(d)) - 0.5; },   // parked at the end of the line (the last stop may lie past the drawn shape end)
   _sEnd(d) { return d.dir.sh.cum[d.dir.sh.n - 1] - (d.ro.t === 0 ? TS1 : 0); },
   _junc(d) {   // terminus: where the tail of this shape meets the opposite direction's shape (before its first stop). gap ≤ 2 m → drive on continuously, else stop + fade
     const ro = d.ro, dir = ro.dirs.length > 1 ? ro.dirs[(d.dir.idx + 1) % ro.dirs.length] : d.dir, pat = dir.pats.reduce((a, b) => (b.s[b.n - 1] - b.s[0] > a.s[a.n - 1] - a.s[0] ? b : a));
@@ -595,6 +596,8 @@ Object.assign(Transit.prototype, {
         d.skipped = (d.skipped || 0) + 1; if (this.jobs) this.jobs.addPen(40, 'Пропуск остановки'); d.k++;
         if (d.k >= d.pat.n - 1) { d.hold = 2.5; }
       }
+      // the LAST stop: the shape ends at it, so it cannot be driven past — pushing on (throttle held 3 s) without opening the doors = skipped terminus: penalty, no stop bonus
+      if (this._atEnd(d) && d.hold <= 0) { if (thr > 0) d.endPush = (d.endPush || 0) + dt; else d.endPush = 0; if (d.endPush > 3) { d.endPush = 0; d.skipped = (d.skipped || 0) + 1; if (this.jobs) this.jobs.addPen(60, 'Пропуск конечной'); d.k++; d.hold = 1.0; } }
     }
     if (tram) { if (d.prev && d.s - TS0 > d.prev.p) d.prev = null; if (!d.prev) d.s = this._tramS(d.dir.sh, d.s); }
     v.s = d.s; const o = tram ? this._unit(d.dir.sh, d.s, v.st, d) : this._pose(d.dir.sh, d.s, LAT, v.st); v.x = o.x; v.z = o.z; v.yaw = o.yaw; v.moving = d.vel > 0.2; this._groundY(v, dt); v.lyaw = null;

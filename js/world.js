@@ -250,7 +250,7 @@ export class World {
   buildTile(ix, iz, key, d, splat) {
     const T = this.TILE, ox = ix * T, oz = iz * T;
     const group = new THREE.Group(); group.name = 'tile' + key;
-    const t = { ix, iz, key, group, h: Float32Array.from(d.h), cellKeys: new Set(), waters: [], ox, oz, alive: true, plans: [], roads: d.r || [], blds: d.b || [] };
+    const t = { ix, iz, key, group, h: Float32Array.from(d.h), cellKeys: new Set(), waters: [], ox, oz, alive: true, plans: [], roads: d.r || [], blds: d.b || [], trees: d.t || null };
     this.tiles.set(key, t);
     const add = (geo, mat, o = {}) => { const m = o.mesh || new THREE.Mesh(geo, mat); m.castShadow = !!o.cast; m.receiveShadow = o.receive !== false; if (o.order) m.renderOrder = o.order; m.matrixAutoUpdate = false; group.add(m); return m; };
     // terrain
