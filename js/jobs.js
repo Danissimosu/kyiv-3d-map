@@ -95,7 +95,7 @@ export class Jobs {
     const bs = el('div', '', '', h); bs.style.cssText = 'display:flex;gap:6px;justify-content:center;margin-top:3px;pointer-events:auto';
     const mkb = (t, fn) => { const b = el('span', '', t, bs); b.style.cssText = `padding:${T ? '5px 12px' : '2px 9px'};background:rgba(255,255,255,.2);border-radius:10px;font-size:${T ? 12 : 12}px`; tap(b, fn); return b; };
     this.bBrk = mkb('☕ обед', () => this.takeBreak()); this.bQuit = mkb('✕ закончить', () => this.end('quit'));
-    if (T) { const place = () => { h.style.top = `calc(${innerHeight > innerWidth ? 100 : 58}px + env(safe-area-inset-top))`; }; place(); addEventListener('resize', place); }   // phone portrait: below the status panel
+    if (T) { const place = () => { h.style.top = `calc(99px + env(safe-area-inset-top))`; }; place(); addEventListener('resize', place); }   // phone portrait: below the status panel
   }
   takeBreak() { const sh = this.sh; if (!sh) return; if (sh.brkDone) { toast('Обед уже был'); return; } if (sh.brk > 0) return; sh.brkDone = true; sh.brk = Math.max(3, Math.round(sh.J.brk / 6)); toast(`☕ Перерыв ${sh.brk} мин — не оплачивается`); }
   est(sh) { const J = sh.J; return Math.max(0, Math.round((J.hourly * (sh.worked + OFFPAY * (sh.offw || 0)) + (J.ot || 0) * sh.ot) * PAYX / 60 + sh.bonus - sh.pen)); }
