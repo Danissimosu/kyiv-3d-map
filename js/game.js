@@ -312,7 +312,7 @@ export class Game {
       let a = this._poiAction(); if (!a) for (const f of this.providers) { a = f(P, this); if (a) break; }
       this.act = a; const lab = a ? a.label : ''; if (lab !== this._actLab) { this._actLab = lab; this._actT = this.t; }
       const showPill = a && this.t - this._actT < (this.ctx.IS_TOUCH ? 4 : 6);   // compact hint pill, auto-hides after a few seconds
-      this.actEl.style.display = showPill ? 'block' : 'none'; if (a) this.actEl.textContent = (this.ctx.IS_TOUCH ? '' : 'E — ') + a.label;
+      this.actEl.style.display = showPill ? 'block' : 'none'; if (this.ctx.IS_TOUCH) { const dh = this._dh || (this._dh = document.getElementById('doorhint')); if (dh) dh.style.visibility = showPill ? 'hidden' : ''; }   // iPhone: the action pill and the door/exit hint share the 54 px slot if (a) this.actEl.textContent = (this.ctx.IS_TOUCH ? '' : 'E — ') + a.label;
       this.bAct.style.display = a && this.ctx.IS_TOUCH ? 'flex' : 'none'; if (a && this.ctx.IS_TOUCH) this.bAct.title = a.label;
       this.refresh();
     }
