@@ -44,7 +44,7 @@ export class Game {
     this.ctx = ctx; const { P, world, scene, pois } = ctx; this.P = P; this.world = world; this.pois = pois; this.scene = scene;
     this.decay = parseFloat(ctx.qs.get('decay') || '1'); this.providers = []; this.sitting = null; this.dead = false; this.shift = null; this.act = null; this.t = 0; this.dirty = 0; this.saveT = 0;
     this.S = this._load(); this.minVy = 0; this.lastPos = [P.x, P.z];
-    this._ui(); this._pads(); this.addProvider(P => this._benchProvider(P)); this.refresh();
+    this._ui(); this._pads(); this.addProvider(P => this._benchProvider(P)); this.addProvider(P => this._mailProvider(P)); this.refresh();
     addEventListener('keydown', e => {
       if (e.repeat) return;
       if (e.code === 'Escape') { for (const p of [this.invP, this.phoneP, this.shopP, this.jobP, pois.panel]) p.close(); return; }
@@ -177,6 +177,25 @@ export class Game {
   }
   // ---------------------------------------------------------------- actions
   addProvider(fn) { this.providers.push(fn); }
+  _mailTips = [
+    'Київпастранс: трамваї йдуть за реальним розкладом GTFS — дивіться вкладку 🚏.',
+    'Вночі (22:00–05:00) на карті з’являються 🧥 — це ігровий кримінал, не реальність.',
+    'Оренда: першого числа списується квартплата; можна увімкнути автооплату в 🏠 Жильє.',
+    'На скамейці можна відпочити (E) — ⚡ відновлюється.',
+    'Реальний час Києва 1:1: якщо згорнули гру надовго — годинник наздожене.',
+    'У закладах є вакансії: McDonald’s, Сільпо, кав’ярні… дивіться 💼 у панелі магазину.',
+    'Мітки на карті: голод/спрага самі ведуть до найближчого кафе, якщо немає іншої мітки.',
+    'Потрібна економія батареї: у фоні вкладки симуляція зупиняється.',
+  ];
+  _mailProvider(P) {
+    if (this.sitting || (this.crime && (this.crime.driving || this.crime.jail))) return null;
+    const m = this.world.nearestMailbox(P.x, P.z, 1.9); if (!m) return null;
+    return { label: '📬 Почтовый ящик', run: () => this.readMail(m) };
+  }
+  readMail(m) {
+    const tips = this._mailTips, i = Math.floor(Math.random() * tips.length);
+    toast('📬 Листовка: ' + tips[i], 5200); this.dirty = 1;
+  }
   // sit on a street bench: rest (⚡ recovers), E / stick to stand up
   _benchProvider(P) {
     if (this.sitting || this.crime && (this.crime.driving || this.crime.jail) || this.transit && this.transit.busy) return null;
