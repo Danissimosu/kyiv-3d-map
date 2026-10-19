@@ -228,7 +228,11 @@ export class Game {
   }
   doAction() { if (UI.modal) return; if (this.sitting) { this.stand(); return; } if (this.act) this.act.run(); }
   openShop(poi) {
-    if (!isOpen(poi.key, this.ctx.clock.hour)) { const o = HOURS[poi.key]; this.shopP.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; this.shopP.body.innerHTML = `<p style="font-size:16px">🔒 Закрыто. Работает ${hhmm(o[0] * 60)}–${hhmm(o[1] * 60)}. Сейчас ${this.ctx.clock.text}.</p>`; this._vacancies(poi, this.shopP.body, this.shopP); this.shopP.open(); return; }
+    if (!isOpen(poi.key, this.ctx.clock.hour)) { const o = HOURS[poi.key]; this.shopP.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; this.shopP.body.innerHTML = `<p style="font-size:16px">🔒 Закрыто. Работает ${hhmm(o[0] * 60)}–${hhmm(o[1] * 60)}. Сейчас ${this.ctx.clock.text}.</p>`;
+      { const h = this.ctx.clock.hour, P = this.P, alt = this.pois && this.pois.nearest(P.x, P.z, q => q !== poi && q.group === poi.group && isOpen(q.key, h), 1)[0];   // closed → offer the nearest open place of the same kind
+        if (alt) { const r = el('div', 'row', `<div class="t"><b>Открыто сейчас: ${alt.poi.cat.icon} ${alt.poi.name}</b><small>${alt.dist < 1000 ? Math.round(alt.dist) + ' м' : (alt.dist / 1000).toFixed(1).replace('.', ',') + ' км'}</small></div>`, this.shopP.body);
+          tap(el('span', 'btn g', 'метка', r), () => { this.pois.setTrack(alt.poi, true); this.shopP.close(); toast(`📍 ${alt.poi.name}`); }); } }
+      this._vacancies(poi, this.shopP.body, this.shopP); this.shopP.open(); return; }
     const p = this.shopP; p.titleEl.textContent = `${poi.cat.icon} ${poi.name}`; const b = p.body; const draw = () => {
       b.innerHTML = `<div style="margin:4px 0 8px"><b>₴ ${Math.floor(this.S.money)}</b> · 🍖 ${Math.round(this.S.food)} · 💧 ${Math.round(this.S.water)}</div>`;
       for (const id of SHOPS[poi.key] || []) { const it = ITEMS[id], r = el('div', 'row', '', b); el('div', 't', `<b>${it.icon} ${it.n}</b><small>${[it.food ? '🍖 +' + it.food : '', it.water ? '💧 +' + it.water : '', it.hp ? '❤ +' + it.hp : '', it.info || ''].filter(Boolean).join('  ')}</small>`, r);
