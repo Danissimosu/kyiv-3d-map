@@ -225,6 +225,16 @@ export class Game {
     el('div', '', '<p style="font-size:11px;opacity:.6;margin-top:10px">Игровые значения на основе медиан по Киеву (Work.ua, Київпастранс, 10.2026). Время в игре — реальное киевское (1:1). Смена оплачивается поминутно — можно поработать 5 минут.</p>', b);
     p.open();
   }
+  // soft beacon to the nearest open shop/food when a need tip fires (does not override an existing player mark)
+  _needMark(group) {
+    if (!this.pois || this.pois.track) return null; const h = this.ctx.clock.hour, P = this.P;
+    // food tip → food group; thirst → cafés/markets (not hardware / pharmacy)
+    const pred = group === 'shop'
+      ? p => (p.group === 'food' || (p.group === 'shop' && p.key !== 'epicentr' && p.key !== 'apteka')) && isOpen(p.key, h)
+      : p => p.group === group && isOpen(p.key, h);
+    const hit = this.pois.nearest(P.x, P.z, pred, 1)[0]; if (!hit) return null;
+    this.pois.setTrack(hit.poi, true); return hit.poi;
+  }
   // ---------------------------------------------------------------- per-frame
   update(P, dt) {
     if (UI.modal && !this.dead) return;
@@ -243,8 +253,8 @@ export class Game {
     P.tired = S.en < 12 ? 0.72 : undefined; if (S.en < 12 && !this._le) { this._le = 1; toast('⚡ Вы вымотались: бег медленнее. Поспите дома, выпейте кофе или энергетик'); } if (S.en > 20) this._le = 0;
     if (S.food <= 0 || S.water <= 0) { this.hurt(d * ((S.food <= 0) + (S.water <= 0)) * 0.6); if (!this._warn || this.t - this._warn > 20) { this._warn = this.t; toast(S.water <= 0 ? '💧 Вы хотите пить!' : '🍖 Вы голодны!'); } }
     else if (S.hp < 100 && S.food > 40 && S.water > 40) S.hp = Math.min(100, S.hp + d * 0.4);
-    if (S.food < 20 && !this._lf) { this._lf = 1; toast('🍖 Голод: найдите еду'); } if (S.food > 30) this._lf = 0;
-    if (S.water < 20 && !this._lw) { this._lw = 1; toast('💧 Жажда: найдите воду'); } if (S.water > 30) this._lw = 0;
+    if (S.food < 20 && !this._lf) { this._lf = 1; const n = this._needMark('food'); toast(n ? `🍖 Голод: ближайшее — ${n.cat.icon} ${n.name} (метка)` : '🍖 Голод: найдите еду'); } if (S.food > 30) this._lf = 0;
+    if (S.water < 20 && !this._lw) { this._lw = 1; const n = this._needMark('shop'); toast(n ? `💧 Жажда: ближайшее — ${n.cat.icon} ${n.name} (метка)` : '💧 Жажда: найдите воду'); } if (S.water > 30) this._lw = 0;
     this.dirty = 1;
     // action providers (throttled)
     if (((this.fr = (this.fr || 0) + 1) % 4) === 0) {

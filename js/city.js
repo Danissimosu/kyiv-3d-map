@@ -651,7 +651,7 @@ export class City {
           if (distEnd < 1.8 && !(yield_ && distEnd > 0.6 && (c.stuck || 0) < 6)) { c.wait = rnd(0.7, 2.4); c.passed = true; } }
       }
       if (c.hitT > 0) { c.hitT -= dt; target = 0; }
-      if (target < 0.2 && c.speed < 0.3) { c.stuck = (c.stuck || 0) + dt; if (c.stuck > 22 && !c.keep && Math.hypot(c.x - P.x, c.z - P.z) > 40) { c.dead = true; this.stuckKilled++; this.killWhy[c.why || '?'] = (this.killWhy[c.why || '?'] || 0) + 1; continue; } if (c.stuck > 14 && c.blocker && !c.blocker.parked && !c.obs) c.ghost = 2; } else c.stuck = 0;
+      if (target < 0.2 && c.speed < 0.3) { c.stuck = (c.stuck || 0) + dt; if (c.stuck > 28 && !c.keep && Math.hypot(c.x - P.x, c.z - P.z) > 40) { c.dead = true; this.stuckKilled++; this.killWhy[c.why || '?'] = (this.killWhy[c.why || '?'] || 0) + 1; continue; } if (c.stuck > 14 && c.blocker && !c.blocker.parked && !c.obs) c.ghost = 2; else if (c.stuck > 16) c.ghost = Math.max(c.ghost || 0, 1.8); } else c.stuck = 0;
       const acc = target > c.speed ? 3.0 : 7.0; c.speed += Math.sign(target - c.speed) * Math.min(Math.abs(target - c.speed), acc * dt);
       c.s += c.dir * c.speed * dt;
       if (c.s <= 0 || c.s >= p.len) {
