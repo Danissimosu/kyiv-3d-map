@@ -1,11 +1,12 @@
-// Active-work jobs. The game clock is real Kyiv time (1:1), so a shift is paid PRO-RATA per real minute of ACTIVE work (sweeping, carrying,
-// delivering, driving...): game pay = J.hourly (Kyiv median, ₴/hour, data/extra_spec.json) x PAYX / 60 per minute, i.e. ₴hourly/2 per minute at PAYX=30,
-// so a 5-minute shift is already worth a meal. Inside the weekly schedule window: full rate; outside it the same work is a side job at OFFPAY (60%);
-// idle time and breaks are unpaid; per-task bonuses / penalties come on top. The quota ("план") is pro-rata too: J.quota per hour of active work.
+// Active-work jobs. Game time is accelerated (1 game hour = 30 real seconds, js/clock.js), so a shift is paid PRO-RATA per GAME hour of ACTIVE work
+// (sweeping, carrying, delivering, driving...): pay = J.hourly (Kyiv median, ₴ per hour, data/extra_spec.json — 110..285) per game hour, i.e. a full
+// 8-hour shift (4 real minutes) pays 8 x hourly. Inside the weekly schedule window: full rate; outside it the same work is a side job at OFFPAY (60%);
+// idle time and breaks are unpaid; per-task bonuses / penalties come on top. The quota ("план") is set by the REAL-time pace of the tasks
+// (J.pace units per real minute of active work), because walking / carrying / driving happen at real speed.
 import * as THREE from 'three';
 import { City } from './city.js';
 import { el, tap, toast, UI } from './ui.js';
-import { WD, hhmm } from './clock.js';
+import { WD, hhmm, RATE } from './clock.js';
 
 const M = s => { const [h, m] = s.split(':'); return (+h) * 60 + (+m); };
 const days = (list) => { const a = [null, null, null, null, null, null, null]; for (const [ds, s, e] of list) for (const d of ds) a[d] = [M(s), M(e)]; return a; };
@@ -45,9 +46,13 @@ const mat = (c, o = {}) => { const k = c + JSON.stringify(o); let m = matCache.g
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 function box(parent, w, h, d, c, x, y, z, ry = 0) { const m = new THREE.Mesh(BOX, mat(c)); m.scale.set(w, h, d); m.position.set(x, y + h / 2, z); m.rotation.y = ry; m.castShadow = false; parent.add(m); return m; }
 const rnd = (a, b) => a + Math.random() * (b - a);
-export const PAYX = 30, OFFPAY = 0.6;   // game pay multiplier vs the real hourly wage; side-job share outside the schedule
-export const perMin = J => Math.round(J.hourly * PAYX / 60);   // ₴ per real minute of active work (shown in the UI)
-const planOf = (sh) => Math.max(3, Math.ceil(sh.J.quota * (sh.worked + sh.ot + (sh.offw || 0)) / 60));
+export const PAYX = 1, OFFPAY = 0.6;   // pay = the real Kyiv hourly wage per GAME hour (x1); side-job share outside the schedule
+export const perHour = J => Math.round(J.hourly * PAYX);   // ₴ per game hour of active work (shown in the UI)
+export const perMin = perHour;                               // (compat alias for older callers)
+const PACE = { kurier: 0.5, taxi: 0.33, bus: 0.33, tram: 0.33 };   // travel jobs: units per real minute (a delivery ~2 min, a ride / a control stop ~3 min)
+export const paceOf = (key, J) => PACE[key] || J.quota / 16;          // on-site jobs: quota/16 per real minute (e.g. cashier 2.5 customers/min)
+const planOf = (sh) => Math.max(1, Math.ceil(paceOf(sh.key, sh.J) * (sh.worked + sh.ot + (sh.offw || 0)) * 60 / RATE));   // game minutes → real minutes
+export const brkMin = J => J.brk;                             // lunch break in game minutes (30..60 → 15..30 real seconds)
 
 export class Jobs {
   constructor(ctx) {
@@ -97,7 +102,7 @@ export class Jobs {
     this.bBrk = mkb('☕ обед', () => this.takeBreak()); this.bQuit = mkb('✕ закончить', () => this.end('quit'));
     if (T) { const place = () => { h.style.top = `calc(99px + env(safe-area-inset-top))`; }; place(); addEventListener('resize', place); }   // phone portrait: below the status panel
   }
-  takeBreak() { const sh = this.sh; if (!sh) return; if (sh.brkDone) { toast('Обед уже был'); return; } if (sh.brk > 0) return; sh.brkDone = true; sh.brk = Math.max(3, Math.round(sh.J.brk / 6)); toast(`☕ Перерыв ${sh.brk} мин — не оплачивается`); }
+  takeBreak() { const sh = this.sh; if (!sh) return; if (sh.brkDone) { toast('Обед уже был'); return; } if (sh.brk > 0) return; sh.brkDone = true; sh.brk = brkMin(sh.J); toast(`☕ Перерыв ${sh.brk} мин — не оплачивается`); }
   est(sh) { const J = sh.J; return Math.max(0, Math.round((J.hourly * (sh.worked + OFFPAY * (sh.offw || 0)) + (J.ot || 0) * sh.ot) * PAYX / 60 + sh.bonus - sh.pen)); }
   addBonus(v, why) { const sh = this.sh; if (!sh) return; sh.bonus += v; sh.log.push([why, v]); }
   addPen(v, why) { const sh = this.sh; if (!sh) return; sh.pen += v; sh.log.push([why, -v]); toast(`⚠ ${why}: −₴${v}`); }
@@ -109,13 +114,13 @@ export class Jobs {
     this.sh = sh; const mk = J.venue ? VenueWork : { dvornik: Janitor, gruzchik: Loader, kurier: Courier, taxi: Taxi, bus: Drive, tram: Drive }[key];
     sh.impl = new mk(this, sh, poi); const ok = sh.impl.start(); if (ok === false) { this.sh = null; sh.impl.dispose(); return; }
     this.beacon.material.color.setHex(J.color); this.hud.style.display = 'block';
-    const st = this.status(J); toast(`${ICON[key]} Смена: ${J.title} · ₴${perMin(J)}/мин активной работы${st.ok ? '' : ` — вне графика: ${Math.round(OFFPAY * 100)}%`}`, 3600);
+    const st = this.status(J); toast(`${ICON[key]} Смена: ${J.title} · ₴${perHour(J)}/ч активной работы (игровой час = 30 с)${st.ok ? '' : ` — вне графика: ${Math.round(OFFPAY * 100)}%`}`, 3600);
   }
   end(reason) {
     const sh = this.sh; if (!sh) return; this.sh = null; const g = this.g, P = this.P;
     try { sh.impl.dispose(); } catch (e) { console.warn(e); }
     this.hud.style.display = 'none'; this.beacon.visible = false; this.pois.extra = null; P.slow = undefined;
-    const J = sh.J, base = Math.round(J.hourly * sh.worked * PAYX / 60), side = Math.round(J.hourly * OFFPAY * (sh.offw || 0) * PAYX / 60), ot = Math.round((J.ot || 0) * sh.ot * PAYX / 60), plan = planOf(sh), q = sh.done >= plan && sh.worked + (sh.offw || 0) + sh.ot >= 2 ? Math.round((base + side) * 0.1) : 0;
+    const J = sh.J, base = Math.round(J.hourly * sh.worked * PAYX / 60), side = Math.round(J.hourly * OFFPAY * (sh.offw || 0) * PAYX / 60), ot = Math.round((J.ot || 0) * sh.ot * PAYX / 60), plan = planOf(sh), q = sh.done >= plan && sh.worked + (sh.offw || 0) + sh.ot >= 30 ? Math.round((base + side) * 0.1) : 0;
     const total = Math.max(0, base + side + ot + Math.round(sh.bonus) + q - Math.round(sh.pen));
     g.earn(total); if (total > 0 || sh.worked > 5) g.S.jobs = (g.S.jobs || 0) + 1; g.dirty = 1;
     this.last = { total, base, side, ot, q, plan, reason, worked: sh.worked, offw: sh.offw || 0, idle: sh.idle, off: sh.off, brk: sh.brkUsed, bonus: Math.round(sh.bonus), pen: Math.round(sh.pen), done: sh.done };
@@ -124,11 +129,11 @@ export class Jobs {
     const hm = m => `${Math.floor(m / 60)} ч ${String(Math.round(m % 60)).padStart(2, '0')} мин`; const row = (l, v, c) => el('div', 'row', `<div class="t"><b>${l}</b></div><b style="${c ? 'color:' + c : ''}">${v}</b>`, b);
     el('div', '', `<p style="margin:2px 0 6px;font-size:13px;opacity:.8">${reason === 'schedule' ? 'Смена закончена по графику' : reason === 'done' ? 'Маршрут завершён' : 'Смена завершена'} · ${WD[sh.startWk]} ${hhmm(sh.startAbs % 1440)}–${this.ck.text.slice(3)} · график ${scheduleText(J)}</p>`, b);
     row('Отработано (активная работа)', hm(sh.worked + sh.ot + (sh.offw || 0))); row('Простой (не оплачивается)', hm(sh.idle)); row('Перерыв (не оплачивается)', hm(sh.brkUsed)); if (sh.off > 0.5) row('Простой вне графика (не оплачивается)', hm(sh.off));
-    row(`По графику ₴${perMin(J)}/мин × ${sh.worked.toFixed(1)} мин`, '₴' + base); if (side) row(`Подработка вне графика ${Math.round(OFFPAY * 100)}% × ${(sh.offw || 0).toFixed(1)} мин`, '₴' + side); if (ot) row(`Сверхурочные ₴${Math.round(J.ot * PAYX / 60)}/мин × ${sh.ot.toFixed(1)} мин`, '₴' + ot);
+    row(`По графику ₴${perHour(J)}/ч × ${hm(sh.worked)}`, '₴' + base); if (side) row(`Подработка вне графика ${Math.round(OFFPAY * 100)}% × ${hm(sh.offw || 0)}`, '₴' + side); if (ot) row(`Сверхурочные ₴${Math.round(J.ot * PAYX)}/ч × ${hm(sh.ot)}`, '₴' + ot);
     row(`Выполнено: ${sh.done} / план ${plan} ${J.unit}`, q ? `план +₴${q}` : '—', q ? '#7fe08a' : '');
     for (const [w, v] of this._sumLog(sh.log)) row(w, (v >= 0 ? '+₴' : '−₴') + Math.abs(v), v >= 0 ? '#7fe08a' : '#ff8a80');
     const t = el('div', 'row', `<div class="t"><b style="font-size:18px">Итого к выплате</b></div><b style="font-size:20px;color:#ffd966">₴${total}</b>`, b);
-    tap(el('div', 'btn', 'Забрать', b), () => p.close()); el('div', '', '<p style="font-size:11px;opacity:.55;margin-top:8px">Ставки — медианы Киева (Work.ua, Київпастранс, 10.2026) × игровой коэффициент ×' + PAYX + ': оплата за каждую реальную минуту активной работы, время = реальное киевское.</p>', b);
+    tap(el('div', 'btn', 'Забрать', b), () => p.close()); el('div', '', '<p style="font-size:11px;opacity:.55;margin-top:8px">Ставки — медианы Киева (Work.ua, Київпастранс, 10.2026): оплата за каждый игровой час активной работы (1 игровой час = 30 реальных секунд, смена 8 ч ≈ 4 мин).</p>', b);
     p.open();
   }
   _sumLog(log) { const m = new Map(); for (const [w, v] of log) m.set(w, (m.get(w) || 0) + v); return [...m]; }
@@ -149,7 +154,7 @@ export class Jobs {
     else if (working) { if (inWin) sh.worked += dMin; else if (after && J.ot) sh.ot += dMin; else sh.offw = (sh.offw || 0) + dMin; }
     else if (inWin) sh.idle += dMin; else sh.off += dMin;
     sh.working = working;
-    if (after && !sh.otAsked && sh.worked > 0) { sh.otAsked = true; toast(J.ot ? `Смена по графику окончена. Дальше — сверхурочные ₴${Math.round(J.ot * PAYX / 60)}/мин. «✕ закончить» — завершить.` : `Смена по графику окончена. Дальше — подработка ${Math.round(OFFPAY * 100)}% ставки. «✕ закончить» — получить расчёт.`, 4500); }
+    if (after && !sh.otAsked && sh.worked > 0) { sh.otAsked = true; toast(J.ot ? `Смена по графику окончена. Дальше — сверхурочные ₴${Math.round(J.ot * PAYX)}/ч. «✕ закончить» — завершить.` : `Смена по графику окончена. Дальше — подработка ${Math.round(OFFPAY * 100)}% ставки. «✕ закончить» — получить расчёт.`, 4500); }
     // HUD
     const est = this.est(sh), left = day && inWin ? hhmm(day[1] - m) : '';
     const state = sh.brk > 0 ? `☕ обед ${Math.ceil(sh.brk)} мин` : !inWin ? (after && J.ot ? '⏱ сверхурочные' : `🌙 вне графика — ${Math.round(OFFPAY * 100)}%`) : !working ? '⏸ простой — не оплачивается' : '';

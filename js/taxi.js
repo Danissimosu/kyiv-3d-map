@@ -1,5 +1,6 @@
 // Phone «Такси» app (separate from the taxi job): tap the phone's GPS map to set pickup (А) and destination (Б), see fare + ETA, call a yellow
 // Camry with an NPC driver that drives the road graph (A*) to the pickup; ride to Б with auto-drive (skip / drop-off anywhere), pay the fare.
+import { RATE, fmtGameMin } from './clock.js';
 import { el, tap, toast } from './ui.js';
 const BASE = 45, PER_KM = 18, ROAD_K = 1.3, MAX_PICK = 900;   // ₴ base + ₴/km (incl. time), straight→road distance factor, max pickup distance from the player (streamed roads)
 const fareFor = km => Math.round((BASE + PER_KM * km) / 5) * 5;
@@ -31,7 +32,8 @@ export class TaxiApp {
   km() { if (!this.pick || !this.dest) return 0; return Math.hypot(this.dest.x - this.pick.x, this.dest.z - this.pick.z) * ROAD_K / 1000; }
   estFare() { return this.dest && (this.pick || this.riding) ? fareFor((this.riding ? Math.hypot(this.dest.x - this.car.x, this.dest.z - this.car.z) * ROAD_K / 1000 : this.km())) : 0; }
   eta() { if (this.car && !this.car.dead && this.st === 'coming') return Math.hypot(this.car.x - this.pick.x, this.car.z - this.pick.z) * ROAD_K / 9; return 75; }
-  fmtT(s) { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${String(s % 60).padStart(2, '0')} с`; }
+  fmtT(s, short) { s = Math.max(0, Math.round(s)); const r = s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${String(s % 60).padStart(2, '0')} с`;   // real seconds (the car drives at real speed) + the game time that passes meanwhile
+    const rate = this.ctx.clock ? this.ctx.clock.rate : RATE, g = s * rate / 60; return !short && rate > 1.5 && g >= 1 ? `${r} (≈ ${fmtGameMin(g)} игр.)` : r; }
   // ---------------------------------------------------------------- flow
   canUse() {
     const g = this.game, cr = g.crime, jobs = this.ctx.jobs;
@@ -126,7 +128,7 @@ export class TaxiApp {
   }
   _hud() {
     let t = '';
-    if (this.st === 'coming') t = `🚕 Едет к вам · ${this.fmtT(this.eta())} · ${Math.round(Math.hypot(this.car.x - this.pick.x, this.car.z - this.pick.z))} м`;
+    if (this.st === 'coming') t = `🚕 Едет к вам · ${this.fmtT(this.eta(), 1)} · ${Math.round(Math.hypot(this.car.x - this.pick.x, this.car.z - this.pick.z))} м`;
     else if (this.st === 'waiting') t = `🚕 Такси ждёт (${Math.round(Math.hypot(this.car.x - this.P.x, this.car.z - this.P.z))} м) · E — сесть`;
     else if (this.st === 'ride') t = `🚕 В пути · осталось ${Math.round(Math.hypot(this.car.x - this.dest.x, this.car.z - this.dest.z) * ROAD_K)} м · ₴${this.fare}`;
     else if (this.st === 'wait_dest') t = '🚕 Выберите пункт Б в 📱 → Такси';

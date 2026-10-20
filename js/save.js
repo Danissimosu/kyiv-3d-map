@@ -62,20 +62,18 @@ export class SaveSystem {
   }
   newGame() {
     this._resetWorld(); const { game, clock, P } = this;
-    game.S = this.defaults(); game.dirty = 1; game.refresh(); if (clock.forced) clock.set(0, 8 * 60); else clock.toReal();
+    game.S = this.defaults(); game.dirty = 1; game.refresh(); clock.newGame();   // 08:00 on today's real Kyiv date (tests: the ?clock / ?day overrides)
     const s = this.START; P.fly = false; this.teleport(s.x, s.z, s.yaw * Math.PI / 180, 0); if (this.rent) this.rent.afterLoad();
     this.dropClones && this.dropClones();
   }
   load(s) {
     this._resetWorld(); const { game, clock, P, crime, city } = this;
     game.S = Object.assign(this.defaults(), s.S); game.dirty = 1; game.refresh();
-    // clock: real-time mode keeps "now" (the save's time is history); manual/test mode restores it. v1 saves stored days since their new game:
-    // every day-stamped field of the rental contract is shifted onto the real calendar (old saves keep loading).
+    // clock (task 4: accelerated game time that only runs while playing): the save's time and calendar day are restored as they were.
+    // v1 saves (60x era) stored days since their new game: the day is put on the calendar near today with the same weekday and every day-stamped field
+    // of the rental contract is shifted by the same amount. Task-3 v2 saves (real Kyiv time, rt=1) hold the real time of the save — restored as game time.
     const c0 = s.clock || {}, wasV2 = c0.cv === CLOCK_V;
-    if (!clock.real || (wasV2 && !c0.rt)) { if (wasV2) { clock.manual(); clock.day = c0.day | 0; clock.wk = c0.wk | 0; clock.t = c0.t || 0; } else clock.set(c0.wk | 0, (c0.t || 0) / 60); }
-    if (!wasV2) migrateDays(game.S, clock.day - (c0.day | 0), clock);
-    // real time, away for 2+ days: the lease pauses while the game is closed (no late fees / eviction for days you didn't play)
-    else if (clock.real && c0.rt !== 0 && clock.day - (c0.day | 0) >= 2 && game.S.home) { const g = clock.day - (c0.day | 0); migrateDays(game.S, g, clock); this.awayDays = g; setTimeout(() => toast(`🏠 Вас не было ${g} дн. — аренда стояла на паузе, пени не начислялись`, 5000), 1500); }
+    if (wasV2) clock.restore(c0); else { clock.set(c0.wk | 0, (c0.t || 0) / 60); migrateDays(game.S, clock.day - (c0.day | 0), clock); }
     P.fly = !!s.P.fly; this.teleport(s.P.x, s.P.z, s.P.yaw, s.P.pitch);
     P.restoreY = P.wait ? s.P.y : undefined; P.y = s.P.y; P.eye = P.y + 1.7;     // exact height (teleport() lands on the highest surface = roofs)
     crime.heat = s.crime ? s.crime.heat : 0;

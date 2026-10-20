@@ -52,8 +52,8 @@ export class Menu {
     const r = this.root, h = this.h; r.innerHTML = ''; const box = el('div', 'mbox', '', r), saves = listSaves(), ready = h.isReady();
     this._bar = this._txt = null;
     if (this.mode === 'main') {
-      el('div', 'mlogo', 'Open world · 1:1', box); el('h1', '', 'Киев 3D', box); el('div', 'msub', 'Прогулка по настоящему Киеву в реальном времени: работа, транспорт, розыск', box);
-      try { const kt = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Kyiv', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date()); el('div', 'msub', `🕒 Сейчас в Киеве: ${kt}`, box).style.cssText = 'opacity:.75;font-size:12px;margin-top:-4px'; } catch (e) {}
+      el('div', 'mlogo', 'Open world · 1:1', box); el('h1', '', 'Киев 3D', box); el('div', 'msub', 'Прогулка по настоящему Киеву: работа, транспорт, розыск', box);
+      el('div', 'msub', '⏩ Время в игре ускорено: 1 игровой час = 30 секунд, сутки = 12 минут; новая игра — с 08:00, на паузе часы стоят', box).style.cssText = 'opacity:.75;font-size:12px;margin-top:-4px';
       if (!ready) { const l = el('div', 'mload', '<div class="mb"><i></i></div><div class="mt">Загрузка города…</div>', box); this._bar = l.querySelector('i'); this._txt = l.querySelector('.mt'); }
       const nb = el('div', 'mbtn pri' + (ready ? '' : ' dis'), '🏙️ Новая игра', box);
       tap(nb, () => { if (!h.isReady()) return; if (hasSave()) this.confirm('Начать новую игру?', 'Прогресс в сохранениях будет перезаписан: автосохранение заменит новая игра уже через 30 секунд. Ручное сохранение останется, пока вы не сохраните поверх него.', 'Новая игра', () => h.newGame()); else h.newGame(); });

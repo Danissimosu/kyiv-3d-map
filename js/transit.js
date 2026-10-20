@@ -7,6 +7,11 @@ const COL = { 0: 0xa01818, 3: 0x1565c0, 11: 0x2e8b4a }, TNAME = { 0: 'Трамв
 const FARE = 8, BL = 11.8, UNIT = 14.4, TL = 28.8, LAT = 1.8, DWELL = 22, ATLAS_C = 8, ATLAS_R = 21, SIGN_C = 4, SIGN_R = 8, TS0 = UNIT + 4.5 + 0.1, TS1 = UNIT / 2;
 // terminus: a finished trip near the player stays LAY s at the last stop (doors open), then drives the turning loop (≈TAILV m/s) onto the opposite direction's shape and waits ≤ WAITMAX s at its first stop for the next departure (the same vehicle continues as that trip)
 const LAY = 25, TAILV = 4.5, WAITMAX = 1200;
+// accelerated game clock (task 4: 120x): vehicles keep REAL speed (transit time cT runs 1 s per real s), but the timetable must follow the game clock
+// (which trips run, night 23–06 without service). Every RESYNC game seconds of drift cT is re-anchored to the game clock SEAMLESSLY: vehicles the player
+// can see (and the one being ridden) keep driving on their own time offset (v.lg, "legacy", renamed key L<n>:…) until they leave the view; new trips
+// of the new anchor that would appear inside the view are deferred until that spot is out of view — nothing pops in or teleports in front of the camera.
+const RESYNC = 20 * 60;
 const CAPV = { d: [8, 14, 24, 40], m: [5, 9, 14, 22] }, RADV = { d: [200, 280, 360, 450], m: [150, 200, 240, 280] };
 const CAPS = { d: [10, 16, 24, 32], m: [8, 12, 18, 26] }, RADS = { d: [130, 180, 240, 300], m: [100, 140, 180, 220] };
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -102,6 +107,7 @@ export class Transit {
     if (ctx.clock) { wk = ctx.clock.wk; T = ctx.clock.t; }   // global game clock (real Kyiv time 1:1 by default) — the GTFS timetable runs naturally
     this.cT = T; this.wk = Math.max(0, wk); this.rate = qs.has('trate') ? parseFloat(qs.get('trate')) : (qs.get('clockrate') === '0' ? 0 : 1); this.dayForce = qs.get('day'); this.last = performance.now();
   }
+  get gT() { const gc = this.ctx.clock; return gc ? gc.t : this.cT; }   // game-clock time of day (shown to the player; vehicles run on cT)
   get busy() { return !!(this.ride || this.drive); }
   get day() { return this.dayForce === 'wd' || this.dayForce === 'we' ? this.dayForce : (this.wk >= 5 ? 'we' : 'wd'); }
   setLevel(l) { this.level = l; }
@@ -187,7 +193,10 @@ export class Transit {
               const p0 = pat.p0 || (pat.p0 = this._at(dir.sh, ro.t === 0 ? this._tramS(dir.sh, pat.s[0]) : pat.s[0], {})), d0 = Math.hypot(p0.x - px, p0.z - pz);
               if (claim.has(key) || d0 > R * 1.3 || (d0 < R && this._inViewXZ(p0.x, p0.z))) continue;
             }
-            if (!v) { v = { key, ro, dir, pat, t0, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null }; this.veh.set(key, v); } }
+            if (!v) { const nv = { key, ro, dir, pat, t0, st: {}, hasY: false, y: 0, yaw: 0, lyaw: null };
+              if (this.defer && (this.fresh || this.defer.has(key))) {   // after a re-anchor: a mid-route trip never appears inside the view
+                this._upd(nv, T, false); const dn = Math.hypot(nv.x - px, nv.z - pz); if (dn < R * 1.3 && this._inViewXZ(nv.x, nv.z)) { this.defer.add(key); continue; } this.defer.delete(key); }
+              v = nv; this.veh.set(key, v); } }
           this._upd(v, T, false);
           // finished trip: far from the player it disappears after a 90 s layover; near the player it drives the turning loop and becomes the next departure (see _fin / _mkTail)
           if (v.tt > pat.dur && !this._fin(v, R)) { this.veh.delete(key); this.retired.set(key, v.t0 + pat.dur + 400); continue; }
@@ -196,8 +205,12 @@ export class Transit {
       }
     }
     for (const [k, v] of [...this.veh]) if (!seen.has(k)) {   // out of the schedule window: only the ridden vehicle and terminus-loop vehicles survive (never yank a rider out)
+      if (v.lg !== undefined) {   // legacy (pre-re-anchor) vehicle: drives on its own time while the player can see it (or rides it), then quietly leaves
+        this._upd(v, T + v.lg, false); const dv = Math.hypot(v.x - px, v.z - pz);
+        if ((this.ride && this.ride.v === v) || (dv < R * 1.3 && (dv < 80 || this._inView(v)))) { seen.add(k); this.act.push(v); } else this.veh.delete(k); continue; }
       if ((this.ride && this.ride.v === v) || v.tl) { this._upd(v, T, false); if (this.ride && this.ride.v === v || this._fin(v, R)) { seen.add(k); this.act.push(v); continue; } }
       this.veh.delete(k); if (v.tt > v.pat.dur) this.retired.set(k, v.t0 + v.pat.dur + 400); }
+    this.fresh = false;
     // near set
     const c = [], prev = this.near; for (const v of this.act) { if (!this.filt.has(v.ro.t)) continue; const d = Math.hypot(v.x - px, v.z - pz), was = prev.includes(v); if (d < R * (was ? 1.2 : 1)) { v.dp = d * (was ? 0.75 : 1); c.push(v); } }   // hysteresis: a vehicle already drawn is not swapped out at the cap/radius edge
     c.sort((a, b) => a.dp - b.dp); this.near = c.slice(0, cap); if (this.ride && !this.near.includes(this.ride.v)) this.near.push(this.ride.v);
@@ -209,9 +222,19 @@ export class Transit {
       if (lat === 0) { if (v.pv && v.s - TS0 > v.pv.p) v.pv = null; v.s = this._tramS(v.dir.sh, v.s); } }
     if (full) { const o = lat === 0 ? this._unit(v.sh, v.s, v.st, this._vd(v)) : this._pose(v.sh, v.s, lat, v.st); v.x = o.x; v.z = o.z; v.yaw = o.yaw; } else { const c = this._at(v.sh, v.s, v.st); v.x = c.x; v.z = c.z; }
   }
+  _resync(gc) {   // re-anchor transit time to the game clock; visible / ridden vehicles continue on their own offset (see RESYNC)
+    const P = this.P, R = (this.mob ? RADV.m : RADV.d)[this.level], T0 = this.cT, T1 = gc.t, keep = new Map(); this.lgN = this.lgN || 0;
+    for (const v of this.veh.values()) {
+      const ridden = this.ride && this.ride.v === v, d = Math.hypot(v.x - P.x, v.z - P.z);
+      if (!(ridden || (this.near.includes(v) && d < R * 1.3 && (d < 80 || this._inView(v))))) continue;
+      v.lg = (v.lg || 0) + (T0 - T1); if (v.tl) v.tl.succ = null;
+      if (v.key[0] !== 'L') v.key = 'L' + (++this.lgN) + ':' + v.key; keep.set(v.key, v);
+    }
+    this.cT = T1; this.wk = gc.wk; this.veh = keep; this.retired = new Map(); this.defer = new Set(); this.fresh = true; this.t1 = 9; this.resyncs = (this.resyncs || 0) + 1;
+  }
   _rekey() {
     const nv = new Map(); for (const v of this.veh.values()) { v.t0 -= 86400; if (v.tl && v.tl.succ) { const s = v.tl.succ; if (s.key.endsWith('.0')) { s.key = s.key.slice(0, -1) + '1'; s.t0 -= 86400; } else v.tl.succ = null; }
-      if (v.key.endsWith('.0')) v.key = v.key.slice(0, -1) + '1'; else if (!(this.ride && this.ride.v === v) && !v.tl) continue; nv.set(v.key, v); }
+      if (v.key.endsWith('.0')) v.key = v.key.slice(0, -1) + '1'; else if (!(this.ride && this.ride.v === v) && !v.tl && v.lg === undefined) continue; nv.set(v.key, v); }
     this.veh = nv; this.retired = new Map();
   }
   _vd(v) { return v.drv ? this.drive : v.pv ? v.pd : null; }   // rear bogies behind a terminus junction stay on the previous shape
@@ -345,9 +368,10 @@ export class Transit {
     const now = performance.now(); let hold = this.boardP && this.boardP.isOpen;   // the doors stay open while the player decides about the ticket - but never longer than 12 s (a forgotten panel froze ALL vehicles)
     if (hold) { this.holdAt = this.holdAt || now; if (now - this.holdAt > 12000) { hold = false; this.holdAt = 0; this.boardP.close(); toast('Транспорт уехал', 1800); } } else this.holdAt = 0;
     if (!hold) this.cT += (now - this.last) / 1000 * this.rate; this.last = now;
-    const gc = this.ctx.clock;   // follow the game clock's weekday / time-of-day period (vehicles keep real-time speed: at 60x they would move at ~300 m/s)
-    if (gc && this.rate === 1 && ((this.rs = (this.rs || 0) + dt) > 2)) { this.rs = 0; let df = ((gc.t - this.cT) % 86400 + 86400) % 86400; if (df > 43200) df -= 86400;
-      if (((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > (gc.real ? 120 : 6 * 3600)) && !this.busy && !this.near.some(v => Math.hypot(v.x - P.x, v.z - P.z) < 160)) { this.cT = gc.t; this.wk = gc.wk; this.veh.clear(); this.t1 = 9; } }   // silent: only while nobody rides and no vehicle is in sight
+    const gc = this.ctx.clock;   // follow the game clock's weekday / time of day (vehicles keep real-time speed: at 120x they would move at ~1000 m/s)
+    if (gc && this.rate === 1 && now - (this.rsAt || 0) > 1000) { this.rsAt = now;   // checked once per REAL second (dt is capped per frame)
+      let df = ((gc.t - this.cT) % 86400 + 86400) % 86400; if (df > 43200) df -= 86400;
+      if ((gc.wk >= 5) !== (this.wk >= 5) || Math.abs(df) > (gc.rate > 1.5 ? RESYNC : 6 * 3600)) this._resync(gc); }
     if (this.cT >= 86400) { this.cT -= 86400; this.wk = (this.wk + 1) % 7; this._rekey(); this.t1 = 9; }   // real-time midnight (once per 24 real hours): today's trips become 'yesterday's' (key suffix .1) — nobody vanishes, the rider stays
     this.t1 += dt; if (this.t1 > (this.rate > 5 ? 0.25 : 1)) { this.t1 = 0; this.scan(); }
     this.t2 += dt; if (this.t2 > 0.4) { this.t2 = 0; this._updateStops(P); }
@@ -357,7 +381,7 @@ export class Transit {
     const hide = this.ride ? this.ride.v : this.drive ? this.drive.v : null;
     const list = this.drive ? this.near.concat([this.drive.v]) : this.near;
     for (const v of list) {
-      if (!this.drive || v !== this.drive.v) this._upd(v, T, true);
+      if (!this.drive || v !== this.drive.v) this._upd(v, T + (v.lg || 0), true);
       this._groundY(v, dt); if (v.lyaw !== null && v.ro.t !== 0) { let d = v.yaw - v.lyaw; d = Math.atan2(Math.sin(d), Math.cos(d)); v.yaw = v.lyaw + d * Math.min(1, dt * 10); } v.lyaw = v.yaw;
       if (v === hide) continue;
       const tram = v.ro.t === 0, units = tram ? 2 : 1, mesh = tram ? this.mTram : v.ro.t === 11 ? this.mTro : this.mBus;
@@ -389,10 +413,10 @@ Object.assign(Transit.prototype, {
     g.transit = this; g.providers.unshift((P) => this.provider(P)); g.providers.push((P) => this.stopProvider(P));
     const prev = g.onRespawn; g.onRespawn = () => { prev && prev(); this.abort(true); };
   },
-  hudLine() { return this.loaded ? `🕒 ${fmt(this.cT)} ${this.day === 'we' ? 'вых.' : 'будни'}${this.rate !== 1 ? ' ×' + this.rate : ''} · транспорт: ${this.act.length} на линии, ${this.near.length} рядом, ${this.stopInst.length} ост.` : ''; },
+  hudLine() { return this.loaded ? `🕒 ${fmt(this.gT)} (ТС ${fmt(this.cT)}) ${this.day === 'we' ? 'вых.' : 'будни'}${this.rate !== 1 ? ' ×' + this.rate : ''} · транспорт: ${this.act.length} на линии, ${this.near.length} рядом, ${this.stopInst.length} ост.` : ''; },
   // ---------------------------------------------------------------- next departures
   nextDeps(st, n = 6, maxMin = 90) {
-    const out = [], T = this.cT, day = this.day;
+    const gc = this.ctx.clock, out = [], T = gc ? gc.t : this.cT, day = gc && !(this.dayForce === 'wd' || this.dayForce === 'we') ? (gc.wk >= 5 ? 'we' : 'wd') : this.day;   // the timetable by the GAME clock (what the HUD shows)
     for (const { pat, k } of st.pats) {
       if (k === pat.n - 1) continue; const arr = pat[day], off = pat.off[k], want = (T - off) / 60; let a = 0, b = arr.length;
       while (a < b) { const m = (a + b) >> 1; if (arr[m] < want) a = m + 1; else b = m; }
@@ -425,9 +449,9 @@ Object.assign(Transit.prototype, {
   game_busy() { const c = this.ctx.game.crime; return !!(c && (c.driving || c.jail)) || this.ctx.game.dead; },
   stopInfo(st) {
     const p = this.stopP; p.titleEl.textContent = '🚏 ' + st.name; const b = p.body; b.innerHTML = ''; const rs = st.routes.map(i => this.routes[i]);
-    el('div', '', `<small style="opacity:.75">Маршруты: ${rs.map(r => TICON[r.t] + r.n).join(' · ')}<br>Расписание Київпастранс (контрольные остановки) · 🕒 ${fmt(this.cT)}</small>`, b);
+    el('div', '', `<small style="opacity:.75">Маршруты: ${rs.map(r => TICON[r.t] + r.n).join(' · ')}<br>Расписание Київпастранс (контрольные остановки) · 🕒 ${fmt(this.gT)}</small>`, b);
     const deps = this.nextDeps(st, 10, 180); if (!deps.length) el('div', 'row', 'Ближайших рейсов нет', b);
-    for (const d of deps) el('div', 'row', `<div class="t"><b>${TICON[d.ro.t]} ${d.ro.n} → ${d.to}</b><small>${fmt(d.t)} · ${d.dm < 1 ? 'сейчас' : 'через ' + Math.round(d.dm) + ' мин'}</small></div>`, b);
+    for (const d of deps) el('div', 'row', `<div class="t"><b>${TICON[d.ro.t]} ${d.ro.n} → ${d.to}</b><small>${fmt(d.t)} · ${d.dm < 1 ? 'сейчас' : 'через ' + Math.round(d.dm) + ' мин игр.'}</small></div>`, b);
     tap(el('div', 'btn g', this.ctx.pois.track && this.ctx.pois.track.stop === st ? 'Снять метку' : 'Поставить метку', b), () => { this._trackStop(st); p.close(); }); p.open();
   },
   _trackStop(st) { const pois = this.ctx.pois; pois.setTrack(pois.track && pois.track.stop === st ? null : { x: st.x, z: st.z, name: st.name, cat: { icon: '🚏', sign: 'Остановка' }, group: 'stops', brand: COL[st.type], stop: st }); },
@@ -478,13 +502,13 @@ Object.assign(Transit.prototype, {
   },
   skip() {
     const r = this.ride, v = r ? r.v : null; if (!v) { if (this.drive) toast('Едьте к следующей остановке'); return; }
-    const pat = v.pat; let k = v.moving ? v.seg + 1 : Math.min(v.dw + 1, pat.n - 1); if ((!v.moving && v.dw === pat.n - 1) || v.tt > pat.dur || k > pat.n - 1) return; const target = v.t0 + pat.off[k] - 2.5; if (target > this.cT) this.cT = target;
+    const pat = v.pat; let k = v.moving ? v.seg + 1 : Math.min(v.dw + 1, pat.n - 1); if ((!v.moving && v.dw === pat.n - 1) || v.tt > pat.dur || k > pat.n - 1) return; const target = v.t0 + pat.off[k] - 2.5, vT = this.cT + (v.lg || 0); if (target > vT) this.cT += target - vT;
     this.t1 = 9; toast('⏭ Перегон пропущен');
   },
   abort(silent) { if (this.ride) this._exit(true); if (this.drive) this.stopDriving('abort', silent); },
   _hud() {
     let t = '';
-    if (this.ride) { const v = this.ride.v, k = Math.min(v.moving ? v.seg + 1 : v.dw + 1, v.pat.n - 1); t = `${TICON[v.ro.t]} ${v.ro.n} → ${v.dir.to}<br>${v.moving || v.dw < v.pat.n - 1 ? 'След.: ' + this.stops[v.pat.si[k]].name : 'Конечная'} · 🕒 ${fmt(this.cT)}`; }
+    if (this.ride) { const v = this.ride.v, k = Math.min(v.moving ? v.seg + 1 : v.dw + 1, v.pat.n - 1); t = `${TICON[v.ro.t]} ${v.ro.n} → ${v.dir.to}<br>${v.moving || v.dw < v.pat.n - 1 ? 'След.: ' + this.stops[v.pat.si[k]].name : 'Конечная'} · 🕒 ${fmt(this.gT)}`; }
     else if (this.drive) { const d = this.drive; const nx = d.pat.si[d.k + 1] !== undefined ? this.stops[d.pat.si[d.k + 1]].name : (d.tail ? 'разворотное кольцо' : '—'), dist = d.pat.si[d.k + 1] !== undefined ? Math.max(0, d.pat.s[d.k + 1] - d.s) : Math.max(0, d.dir.sh.cum[d.dir.sh.n - 1] - d.s);
       t = `${TICON[d.ro.t]} Маршрут ${d.ro.n} → ${d.dir.to}<br>След.: ${nx} · ${Math.round(dist)} м · ${Math.round(Math.abs(d.vel) * 3.6)} км/ч · заработано ₴${d.earned}${d.hold > 0 ? '<br>🚪 Посадка пассажиров…' : ''}`; }
     if (t !== this._ht) { this._ht = t; this.hudEl.innerHTML = t; this.hudEl.style.display = t ? 'block' : 'none'; }
@@ -509,7 +533,7 @@ Object.assign(Transit.prototype, {
     tg('🗺 Остановки на карте', this.show.stops, () => { this.show.stops = !this.show.stops; }); tg('🚌 Транспорт на карте', this.show.veh, () => { this.show.veh = !this.show.veh; });
     const row2 = el('div', 'chips', '', list); for (const t of [0, 3, 11]) tap(el('span', 'chip' + (this.filt.has(t) ? ' on' : ''), TICON[t] + ' ' + TNAME[t], row2), () => { this.filt.has(t) ? this.filt.delete(t) : this.filt.add(t); this.t1 = 9; this.sigSet = ''; redraw(); });
     const P = this.P, arr = this.stops.filter(s => s.routes.some(i => this.filt.has(this.routes[i].t))).map(s => [Math.hypot(s.x - P.x, s.z - P.z), s]).sort((a, b) => a[0] - b[0]).slice(0, 40);
-    el('div', '', `<small style="opacity:.65">Реальные остановки Київпастранс (контрольные пункты расписания) · 🕒 ${fmt(this.cT)}</small>`, list);
+    el('div', '', `<small style="opacity:.65">Реальные остановки Київпастранс (контрольные пункты расписания) · 🕒 ${fmt(this.gT)}</small>`, list);
     for (const [d, s] of arr) {
       const r = el('div', 'row', '', list), nums = s.routes.slice(0, 8).map(i => this.routes[i].n).join(', ') + (s.routes.length > 8 ? '…' : '');
       el('div', 't', `<b>🚏 ${s.name}</b><small>${d < 1000 ? d.toFixed(0) + ' м' : (d / 1000).toFixed(1) + ' км'} · ${nums}</small>`, r);
@@ -517,11 +541,11 @@ Object.assign(Transit.prototype, {
     }
   },
   fillPhone(div) {
-    div.innerHTML = ''; const P = this.P; el('div', '', `<small style="opacity:.7">🕒 ${fmt(this.cT)} · ${this.day === 'we' ? 'выходной' : 'будни'}</small>`, div);
+    div.innerHTML = ''; const P = this.P; el('div', '', `<small style="opacity:.7">🕒 ${fmt(this.gT)} · ${this.day === 'we' ? 'выходной' : 'будни'}</small>`, div);
     const arr = this.stops.map(s => [Math.hypot(s.x - P.x, s.z - P.z), s]).sort((a, b) => a[0] - b[0]).slice(0, 4);
     let any = false; for (const [d, s] of arr) { const deps = this.nextDeps(s, 4, 120); if (deps.length) any = true;
       el('div', 'row', `<div class="t"><b>🚏 ${s.name}</b><small>${Math.round(d)} м · ${deps.length ? deps.map(x => `${x.ro.n} ${x.dm < 1 ? 'сейчас' : Math.round(x.dm) + ' мин'}`).join(' · ') : 'нет рейсов в ближайшие 2 ч'}</small></div>`, div); }
-    if (!any && arr.length) { const h = this.cT / 3600 % 24; if (h >= 23 || h < 6) el('div', '', `<small style="opacity:.85">🌙 Ночью городской транспорт не ходит (первые рейсы ~5:30–6:00). Доехать можно на такси: 📱 → 🚕 Такси.</small>`, div); }
+    if (!any && arr.length) { const h = this.gT / 3600 % 24; if (h >= 23 || h < 6) el('div', '', `<small style="opacity:.85">🌙 Ночью городской транспорт не ходит (первые рейсы ~5:30–6:00). Доехать можно на такси: 📱 → 🚕 Такси.</small>`, div); }
   },
   // ---------------------------------------------------------------- driver job (arcade): follow the real route, stop at the real stops
   startDriving(poi) {

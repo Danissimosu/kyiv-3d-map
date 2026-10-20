@@ -152,7 +152,7 @@ async function main() {
     let wl = null, hidAt = 0; const wake = async () => { if (!navigator.wakeLock || wl || document.hidden || !inGame || paused) return; try { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); } catch (e) { wl = null; } };
     addEventListener('pointerdown', () => { wake(); }, { passive: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) { hidAt = performance.now(); return; } wake();
-      const gone = hidAt ? (performance.now() - hidAt) / 1000 : 0; hidAt = 0; if (inGame && clock.real && gone > 120) toast(`🕒 Вас не было ${gone < 3600 ? Math.round(gone / 60) + ' мин' : (gone / 3600).toFixed(1).replace('.', ',') + ' ч'} — в Киеве уже ${clock.text}`, 4500); });
+      const gone = hidAt ? (performance.now() - hidAt) / 1000 : 0; hidAt = 0; if (inGame && gone > 120) toast(`⏸ Игра стояла, пока вас не было — сейчас в игре ${clock.text}`, 3500); });
   }
   const gotoDoor = (pl, dist = 5, yawOff = 0) => { const d = pl.door; P.fly = false; teleport(d.mx + d.nx * dist, d.mz + d.nz * dist, Math.atan2(d.nx, d.nz) + yawOff, 0); P.y = world.heightAt(P.x, P.z); P.eye = P.y + 1.7; world.interiors.forceBuild(P); return pl; };
   const spawn = () => {
@@ -177,7 +177,7 @@ async function main() {
   const transit = new Transit(world, scene, { P, IS_TOUCH, qs, clock, game, pois, keys, T, getLevel: () => qLevel, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
   try { await transit.load(BASE); } catch (e) { console.warn('transit load failed', e); } pois.transit = transit;
   const jobs = new Jobs({ P, world, scene, pois, city, clock, game, crime, transit, qs, keys, T, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), gotoDoor: (pl, d) => gotoDoor(pl, d) });
-  const taxiApp = new TaxiApp({ P, city, world, game, jobs, transit, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit) }); game.taxi = taxiApp;
+  const taxiApp = new TaxiApp({ P, city, world, game, jobs, transit, clock, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit) }); game.taxi = taxiApp;
   const rent = new Rent({ game, world, scene, pois, clock, P, ll2xz, IS_TOUCH, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), jobs, crime, transit, taxi: taxiApp, getSaves: () => saves });
   const dealers = new Dealers({ P, world, scene, city, pois, game, crime, transit, clock, qs, IS_TOUCH });
   if (MENU) saves = new SaveSystem({ rent, taxi: taxiApp, P, game, crime, jobs, transit, clock, city, pois, world, teleport: (x, z, yaw, pit) => teleport(x, z, yaw, pit), START, defaults: () => game.defaults(),

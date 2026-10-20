@@ -1,11 +1,13 @@
 // Survival layer: health / hunger / thirst, money, inventory, smartphone, shops, jobs, interaction prompt. State in localStorage.
 import * as THREE from 'three';
 import { $, UI, el, tap, toast, panel } from './ui.js';
-import { JOBDEFS, scheduleText, perMin, OFFPAY } from './jobs.js';
-import { WD, hhmm } from './clock.js';
+import { JOBDEFS, scheduleText, perHour, OFFPAY, brkMin } from './jobs.js';
+import { WD, hhmm, fmtGameMin, fmtRealSec, RATE } from './clock.js';
 import { HOURS, isOpen } from './venues.js';
 export { isOpen };
 
+// needs per GAME hour: [resting, extra when walking (x1.5 running)]; starve = HP/h per empty need; heal = HP/h when fed; bench = ⚡/h sitting
+export const NEED = { food: [2.5, 1.7], water: [3.3, 2.2], en: [3.2, 1.0], starve: 12, heal: 8, bench: 16 };
 export const ITEMS = {
   homekey: { n: 'Ключ от квартиры', icon: '🔑', stack: 1, info: 'Без ключа дверь съёмной квартиры закрыта' },
   phone:   { n: 'Смартфон', icon: '📱', stack: 1, info: 'Карта с GPS, ближайшие места и работа' },
@@ -149,7 +151,7 @@ export class Game {
           const r = el('div', 'row', '', nearby); el('div', 't', `<b>${poi.cat.icon} ${poi.name}</b><small>${dist < 1000 ? dist.toFixed(0) + ' м' : (dist / 1000).toFixed(1) + ' км'}</small>`, r);
           tap(el('span', 'btn g', this.pois.track === poi ? 'снять' : 'метка', r), () => { this.pois.setTrack(this.pois.track === poi ? null : poi); fill(); }); }
       } else if (this.pTab === 'bal') {
-        const S = this.S; bal.innerHTML = `<div class="row"><div class="t"><b>Баланс: ₴ ${Math.floor(S.money)}</b><small>${S.job ? 'Работа: ' + JOBS[S.job.key].title + ' · ₴' + perMin(JOBS[S.job.key]) + '/мин · ' + scheduleText(JOBS[S.job.key]) + ' · смен: ' + (S.jobs || 0) : 'Безработный — найдите вкладку «Работа» в Местах'}</small></div></div><div style="font-size:11px;opacity:.6;margin-top:8px">Игровые значения на основе медиан по Киеву (Work.ua, Київпастранс, живой расчёт таксиста, 10.2026). Время — реальное киевское (1:1); оплата за каждую минуту активной работы.</div>`;
+        const S = this.S; bal.innerHTML = `<div class="row"><div class="t"><b>Баланс: ₴ ${Math.floor(S.money)}</b><small>${S.job ? 'Работа: ' + JOBS[S.job.key].title + ' · ₴' + perHour(JOBS[S.job.key]) + '/ч · ' + scheduleText(JOBS[S.job.key]) + ' · смен: ' + (S.jobs || 0) : 'Безработный — найдите вкладку «Работа» в Местах'}</small></div></div><div style="font-size:11px;opacity:.6;margin-top:8px">Игровые значения на основе медиан по Киеву (Work.ua, Київпастранс, живой расчёт таксиста, 10.2026). Время ускорено: 1 игровой час = 30 реальных секунд (сутки = 12 мин); оплата за каждый игровой час активной работы.</div>`;
       }
     };
     sh();
@@ -182,7 +184,7 @@ export class Game {
     'Вночі (22:00–05:00) на карті з’являються 🧥 — це ігровий кримінал, не реальність.',
     'Оренда: першого числа списується квартплата; можна увімкнути автооплату в 🏠 Жильє.',
     'На скамейці можна відпочити (E) — ⚡ відновлюється.',
-    'Реальний час Києва 1:1: якщо згорнули гру надовго — годинник наздожене.',
+    'Час у грі прискорений: 1 ігрова година = 30 секунд, доба = 12 хвилин. На паузі й у фоні годинник стоїть.',
     'У закладах є вакансії: McDonald’s, Сільпо, кав’ярні… дивіться 💼 у панелі магазину.',
     'Мітки на карті: голод/спрага самі ведуть до найближчого кафе, якщо немає іншої мітки.',
     'Потрібна економія батареї: у фоні вкладки симуляція зупиняється.',
@@ -247,12 +249,12 @@ export class Game {
     const list = Object.entries(JOBS).filter(([k, J]) => J.venue === poi.key); if (!list.length) return;
     el('div', '', '<div style="margin:12px 0 4px;font-weight:700">💼 Вакансии</div>', b);
     for (const [k, J] of list) { const mine = this.S.job && this.S.job.key === k, r = el('div', 'row', '', b);
-      el('div', 't', `<b>${J.icon} ${J.title}</b><small>₴${perMin(J)}/мин · ${scheduleText(J)}${mine ? ' · <b style="color:#7fe08a">ваша работа</b>' : ''}</small>`, r);
+      el('div', 't', `<b>${J.icon} ${J.title}</b><small>₴${perHour(J)}/ч · ${scheduleText(J)}${mine ? ' · <b style="color:#7fe08a">ваша работа</b>' : ''}</small>`, r);
       tap(el('span', 'btn', mine ? 'Смена' : 'Подробнее', r), () => { panel.close(); this.openJob(poi, k); }); }
   }
   openJob(poi, key = poi.key) {
     const p = this.jobP, J = JOBS[key], S = this.S, jobs = this.jobs, ck = this.ctx.clock; if (!J) return; p.titleEl.textContent = `${J.icon || poi.cat.icon} ${J.title} — ${poi.name}`; const b = p.body; b.innerHTML = '';
-    el('div', 'row', `<div class="t"><b>${J.title} · ₴${perMin(J)}/мин</b><small>${J.desc}<br>💵 ставка Киева ₴${J.hourly}/ч → в игре ₴${perMin(J)} за каждую минуту активной работы (можно короткую смену)<br>🕒 смена: ${scheduleText(J)} (вне графика — ${Math.round(OFFPAY * 100)}%)<br>☕ перерыв ${Math.max(3, Math.round(J.brk / 6))} мин (не оплачивается)${J.ot ? ' · сверхурочные ₴' + Math.round(J.ot / 2) + '/мин' : ''}<br>Сейчас: ${ck.text}${poi.real ? '' : ' · игровая точка'}</small></div>`, b);
+    el('div', 'row', `<div class="t"><b>${J.title} · ₴${perHour(J)}/ч</b><small>${J.desc}<br>💵 ставка Киева ₴${J.hourly} за каждый игровой час активной работы (1 ч = 30 с; смена 8 ч ≈ 4 мин, можно короче)<br>🕒 смена: ${scheduleText(J)} (вне графика — ${Math.round(OFFPAY * 100)}%)<br>☕ перерыв ${brkMin(J)} мин игрового (не оплачивается)${J.ot ? ' · сверхурочные ₴' + J.ot + '/ч' : ''}<br>Сейчас: ${ck.text}${poi.real ? '' : ' · игровая точка'}</small></div>`, b);
     const mine = S.job && S.job.key === key, inShift = jobs && jobs.sh;
     if (!S.job) tap(el('div', 'btn', 'Устроиться', b), () => { S.job = { key, name: poi.name, pk: poi.key }; this.dirty = 1; toast('Вы приняты: ' + J.title); this.openJob(poi, key); });
     else if (mine) {
@@ -261,7 +263,7 @@ export class Game {
       tap(el('div', 'btn' + (inShift ? ' off' : ''), inShift ? 'Смена уже идёт' : st.ok ? 'Начать смену' : 'Начать смену (подработка ' + Math.round(OFFPAY * 100) + '%)', b), () => { if (jobs.sh) return; p.close(); jobs.begin(poi, key); });
       const q = el('div', 'btn r', 'Уволиться', b); q.style.marginTop = '8px'; tap(q, () => { if (jobs && jobs.sh) jobs.end('quit'); S.job = null; this.dirty = 1; this.openJob(poi, key); });
     } else { el('div', '', `<p>Вы уже работаете: ${JOBS[S.job.key].title}. Чтобы сменить работу, сначала увольтесь.</p>`, b); const q = el('div', 'btn r', 'Уволиться', b); tap(q, () => { S.job = null; this.dirty = 1; this.openJob(poi, key); }); }
-    el('div', '', '<p style="font-size:11px;opacity:.6;margin-top:10px">Игровые значения на основе медиан по Киеву (Work.ua, Київпастранс, 10.2026). Время в игре — реальное киевское (1:1). Смена оплачивается поминутно — можно поработать 5 минут.</p>', b);
+    el('div', '', '<p style="font-size:11px;opacity:.6;margin-top:10px">Игровые значения на основе медиан по Киеву (Work.ua, Київпастранс, 10.2026). Время в игре ускорено: 1 игровой час = 30 реальных секунд. Смена оплачивается за каждый игровой час активной работы — можно поработать и пару часов.</p>', b);
     p.open();
   }
   // soft beacon to the nearest open shop/food when a need tip fires (does not override an existing player mark)
@@ -275,11 +277,12 @@ export class Game {
     this.pois.setTrack(hit.poi, true); return hit.poi;
   }
   // ---------------------------------------------------------------- per-frame
-  timeInfo() {   // tap the HUD clock: real Kyiv time + what the hour means in game (sun, night dealers, transport)
-    const c = this.ctx.clock, h = c.hour, fm = x => { const m = Math.round((((x % 24) + 24) % 24) * 60); return m < 60 ? m + ' мин' : Math.floor(m / 60) + ' ч' + (m % 60 ? ' ' + (m % 60) + ' мин' : ''); };
+  timeInfo() {   // tap the HUD clock: game time + what the hour means in game (sun, night dealers, transport); spans in GAME time (+ real seconds)
+    const c = this.ctx.clock, h = c.hour, gm = x => ((x % 24) + 24) % 24 * 60;
+    const fm = x => { const m = gm(x), r = c.realSec(m); return `через ${fmtGameMin(m)} игр.` + (isFinite(r) ? ` ≈ ${fmtRealSec(r)}` : ''); };
     const sun = h >= 6.5 && h < 19.5, night = h >= 22 || h < 5, noBus = h >= 23 || h < 6;
-    const msg = `🕒 Киев ${c.text} · ${c.dateText} · ` + (sun ? `☀ закат ≈ 19:30 (через ${fm(19.5 - h)})` : `🌙 рассвет ≈ 06:30 (через ${fm(6.5 - h)})`) + ' · ' + (night ? `ночные точки до 05:00 (ещё ${fm(5 - h)})` : `ночные точки с 22:00 (через ${fm(22 - h)})`) + (noBus ? ' · 🚏 транспорт с 06:00 — пока такси' : '');
-    toast(msg, 5000); return msg;
+    const msg = `🕒 ${c.text} · ${c.dateText} (⏩ 1 ч = 30 с) · ` + (sun ? `☀ закат ≈ 19:30 (${fm(19.5 - h)})` : `🌙 рассвет ≈ 06:30 (${fm(6.5 - h)})`) + ' · ' + (night ? `ночные точки до 05:00 (закроются ${fm(5 - h)})` : `ночные точки с 22:00 (${fm(22 - h)})`) + (noBus ? ' · 🚏 транспорт с 06:00 — пока такси' : '');
+    toast(msg, 5500); return msg;
   }
   update(P, dt) {
     if (UI.modal && !this.dead) return;
@@ -290,19 +293,19 @@ export class Game {
     if (Math.hypot(P.x - this.lastPos[0], P.z - this.lastPos[1]) > 25) this.minVy = 0; this.lastPos = [P.x, P.z];
     if (!P.grounded && !P.fly && !P.inWater) this.minVy = Math.min(this.minVy, P.vy);
     else { if (this.minVy < -13 && P.grounded && !P.fly && !P.inWater) this.hurt((this.minVy * this.minVy - 169) * 0.35, 'Тяжёлое падение'); this.minVy = 0; }
-    // decay
-    // real-time rates (the clock is 1:1): resting 100->0 food in ~5.5 h / water ~4 h; walking/running/working ~1 h / ~50 min; energy (sleep) ~17 h awake, ~8 h active
-    const sp = Math.hypot(P.vx, P.vz), mv = Math.min(1, sp / 3), run = sp > 5.2 ? 1.5 : 1, work = this.jobs && this.jobs.sh ? 1.3 : 1, d = this.decay * dt;
-    S.food = Math.max(0, S.food - d * (0.005 + 0.02 * mv * run) * work); S.water = Math.max(0, S.water - d * (0.007 + 0.026 * mv * run) * work);
-    if (S.en === undefined) S.en = 85; S.en = Math.max(0, S.en - d * (0.0016 + 0.0018 * mv * run) * work);
+    // decay — per GAME hour (task 4: 1 game hour = 30 real s). Walking all day empties ~one bar of food per game day (~24 h, 12 real min), resting ~40 h;
+    // water: walking ~18 h, resting ~30 h; energy: walking ~24 h, resting ~31 h awake (one 8 h sleep per game day). Running x1.5, on a shift x1.3.
+    const sp = Math.hypot(P.vx, P.vz), mv = Math.min(1, sp / 3), run = sp > 5.2 ? 1.5 : 1, work = this.jobs && this.jobs.sh ? 1.3 : 1, gh = Math.min(0.25, (this.ctx.clock.dMin || 0) / 60), d = this.decay * gh;
+    S.food = Math.max(0, S.food - d * (NEED.food[0] + NEED.food[1] * mv * run) * work); S.water = Math.max(0, S.water - d * (NEED.water[0] + NEED.water[1] * mv * run) * work);
+    if (S.en === undefined) S.en = 85; S.en = Math.max(0, S.en - d * (NEED.en[0] + NEED.en[1] * mv * run) * work);
     P.tired = S.en < 12 ? 0.72 : undefined; if (S.en < 12 && !this._le) { this._le = 1; toast('⚡ Вы вымотались: бег медленнее. Поспите дома, выпейте кофе или энергетик'); } if (S.en > 20) this._le = 0;
-    if (S.food <= 0 || S.water <= 0) { this.hurt(d * ((S.food <= 0) + (S.water <= 0)) * 0.6); if (!this._warn || this.t - this._warn > 20) { this._warn = this.t; toast(S.water <= 0 ? '💧 Вы хотите пить!' : '🍖 Вы голодны!'); } }
-    else if (S.hp < 100 && S.food > 40 && S.water > 40) S.hp = Math.min(100, S.hp + d * 0.4);
+    if (S.food <= 0 || S.water <= 0) { this.hurt(d * ((S.food <= 0) + (S.water <= 0)) * NEED.starve); if (!this._warn || this.t - this._warn > 20) { this._warn = this.t; toast(S.water <= 0 ? '💧 Вы хотите пить!' : '🍖 Вы голодны!'); } }
+    else if (S.hp < 100 && S.food > 40 && S.water > 40) S.hp = Math.min(100, S.hp + d * NEED.heal);
     if (S.food < 20 && !this._lf) { this._lf = 1; const n = this._needMark('food'); toast(n ? `🍖 Голод: ближайшее — ${n.cat.icon} ${n.name} (метка)` : '🍖 Голод: найдите еду'); } if (S.food > 30) this._lf = 0;
     if (S.water < 20 && !this._lw) { this._lw = 1; const n = this._needMark('shop'); toast(n ? `💧 Жажда: ближайшее — ${n.cat.icon} ${n.name} (метка)` : '💧 Жажда: найдите воду'); } if (S.water > 30) this._lw = 0;
     // sitting on a bench: recover energy, keep pose, offer stand-up
     if (this.sitting) {
-      S.en = Math.min(100, (S.en ?? 85) + dt * 0.12); P.vx = P.vz = P.vy = 0; P.eye = P.y + 1.15;  // rest regen ignores ?decay=0 (tests) and is faster than idle drain
+      S.en = Math.min(100, (S.en ?? 85) + gh * NEED.bench); P.vx = P.vz = P.vy = 0; P.eye = P.y + 1.15;  // rest regen (per game hour) ignores ?decay=0 (tests) and is faster than idle drain
       this.act = { label: 'Встать', run: () => this.stand() }; this.actEl.style.display = 'block'; this.actEl.textContent = (this.ctx.IS_TOUCH ? '' : 'E — ') + 'Встать';
       this.bAct.style.display = this.ctx.IS_TOUCH ? 'flex' : 'none'; this.dirty = 1; this.refresh(); return;
     }

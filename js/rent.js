@@ -1,7 +1,7 @@
 // Apartment rental («Жильё» phone app). Data: assets/rent.json (compacted data/rent_pack.json: 39 Kyiv locations, rent min/median/max for 1/2/3 rooms,
 // utilities ranges, bot rules). Listings are generated deterministically per location; a signed contract lives in game.S.home (so it is saved/loaded with
 // the normal save slots). The rented flat is a real procedural interior: a residential building near the location gets plan.home (see interior.js:
-// room types, guaranteed bed + fridge, locked entrance). Home functions: sleep (real-time clock: a compressed rest — energy/HP restored, the clock is NOT skipped; manual/test clock: advances it), fridge stash, save point, spawn at home,
+// room types, guaranteed bed + fridge, locked entrance). Home functions: sleep (skips game time: 1/4/8 h or until 07:00, ~2 s black screen; energy/HP restored, food/water drop at the sleep rate), fridge stash, save point, spawn at home,
 // monthly billing on the 1st (utilities by season), late fee 1%/day, eviction, termination.
 import * as THREE from 'three';
 import { el, tap, toast, panel, UI } from './ui.js';
@@ -20,7 +20,6 @@ const seedOf = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h
 const rnd = s => { let a = seedOf(s) + 0x6D2B79F5; a = Math.imul(a ^ (a >>> 15), a | 1); a ^= a + Math.imul(a ^ (a >>> 7), a | 61); return ((a ^ (a >>> 14)) >>> 0) / 4294967296; };
 const pip = (ring, x, z) => { let c = false; const n = ring.length / 2; for (let i = 0, j = n - 1; i < n; j = i++) { const xi = ring[2 * i], zi = ring[2 * i + 1], xj = ring[2 * j], zj = ring[2 * j + 1]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; };
 
-const SLEEP_S = h => 1.5 + 0.6 * h;   // real seconds of the black-screen rest in real-time mode (1 h -> 2 s, 8 h -> 6 s)
 export class Rent {
   constructor(ctx) {
     this.ctx = ctx; this.game = ctx.game; this.world = ctx.world; this.P = ctx.P; this.clock = ctx.clock; this.ll2xz = ctx.ll2xz; this.IS_TOUCH = ctx.IS_TOUCH;
@@ -239,9 +238,9 @@ export class Rent {
     el('div', '', `<div style="margin:4px 0 10px"><b>${ck.text}</b> · ${ck.dateText} · ❤ ${Math.round(S.hp)} · 🍖 ${Math.round(S.food)} · 💧 ${Math.round(S.water)}</div>`, b);
     if (blk) el('div', '', `<p style="color:#ffb3a8">⚠ ${blk}</p>`, b);
     const to7 = ((7 * 3600 - ck.t) % 86400 + 86400) % 86400 / 3600;
-    const opts = [[1, '😴 Вздремнуть 1 ч'], [4, '🌙 Поспать 4 ч'], [8, '🛌 Выспаться 8 ч']]; if (!ck.real && to7 >= 1 && to7 <= 14) opts.push([to7, `⏰ До 07:00 (${to7.toFixed(1)} ч)`]);
-    for (const [h, t] of opts) { const r = el('div', 'row', '', b); el('div', 't', `<b>${t}</b><small>⚡ +${Math.round(Math.min(100, 12.5 * h))} · ❤ +${Math.round(12 * h)}${ck.real ? ' · ≈' + Math.round(SLEEP_S(h)) + ' с' : ''} · еда/вода немного тратятся</small>`, r); tap(el('span', 'btn' + (blk ? ' off' : ''), 'Спать', r), () => this.doSleep(h)); }
-    el('div', '', ck.real ? '<p style="font-size:12px;opacity:.65;margin:6px 0">Время в игре — реальное киевское, сон его не перематывает: это «сжатый» сон — несколько секунд, и вы отдохнули.</p>' : '<p style="font-size:12px;opacity:.65;margin:6px 0">Отладочные часы: сон перематывает время, платежи идут.</p>', b);
+    const opts = [[1, '😴 Вздремнуть 1 ч'], [4, '🌙 Поспать 4 ч'], [8, '🛌 Выспаться 8 ч']]; if (to7 >= 1 && to7 <= 14) opts.push([to7, `⏰ До 07:00 (${to7.toFixed(1)} ч)`]);
+    for (const [h, t] of opts) { const r = el('div', 'row', '', b); el('div', 't', `<b>${t}</b><small>⚡ +${Math.round(Math.min(100, 12.5 * h))} · ❤ +${Math.round(12 * h)} · еда/вода немного тратятся</small>`, r); tap(el('span', 'btn' + (blk ? ' off' : ''), 'Спать', r), () => this.doSleep(h)); }
+    el('div', '', '<p style="font-size:12px;opacity:.65;margin:6px 0">Сон перематывает игровое время (8 ч сна ≈ 2 с вместо 4 минут ожидания): платежи, магазины и транспорт подстраиваются.</p>', b);
     const sv = this.ctx.getSaves && this.ctx.getSaves();
     if (sv) tap(el('div', 'btn g', '💾 Сохранить игру (здесь — точка сохранения)', b), () => { toast(sv.save('manual') ? '💾 Игра сохранена' : 'Сейчас сохранить нельзя'); });
     else el('div', '', '<small style="opacity:.6">Сохранение доступно из главного меню (⏸)</small>', b);
@@ -249,16 +248,16 @@ export class Rent {
   }
   doSleep(h) {
     if (this.sleeping || this.sleepBlock()) return; this.sleeping = true; this.sleepP.close(); this.fade.textContent = `💤 Сон… ${h >= 1.5 ? Math.round(h) + ' ч' : '1 ч'}`; this.fade.style.opacity = 1; this.fade.style.pointerEvents = 'auto';
-    const realMode = this.clock.real; this.ctx.P.frozen = true;
+    this.ctx.P.frozen = true;
     setTimeout(() => {
-      const g = this.game, S = g.S, ck = this.clock, c = this.ctx; if (!realMode) ck.advance(Math.round(h * 3600));
+      const g = this.game, S = g.S, ck = this.clock, c = this.ctx; ck.advance(Math.round(h * 3600));
       S.hp = Math.min(100, S.hp + 12 * h); S.en = Math.min(100, (S.en ?? 85) + 12.5 * h); S.food = Math.max(Math.min(S.food, 6), S.food - 1.2 * h); S.water = Math.max(Math.min(S.water, 6), S.water - 1.6 * h);
       if (g.dealers) g.dealers.sober && g.dealers.sober();
-      const tr = c.transit; if (!realMode && tr && tr.loaded && !tr.busy) { tr.cT = ck.t; tr.wk = ck.wk; tr.veh && tr.veh.clear(); tr.t1 = 9; }
+      const tr = c.transit; if (tr && tr.loaded && !tr.busy) { tr.cT = ck.t; tr.wk = ck.wk; tr.veh && tr.veh.clear(); tr.t1 = 9; }
       g.dirty = 1; g.refresh(); this.sync(); const sv = c.getSaves && c.getSaves(); if (sv) sv.save('auto');
-      this.fade.textContent = realMode ? `☀ Вы отдохнули · ⚡ ${Math.round(S.en)} · ${ck.text}` : `☀ Вы проспали ${h >= 1.5 ? Math.round(h) : 1} ч · ${ck.text} · ${ck.dateText}`;
+      this.fade.textContent = `☀ Вы проспали ${h >= 1.5 ? Math.round(h) : 1} ч · ${ck.text} · ${ck.dateText}`;
       setTimeout(() => { this.fade.style.opacity = 0; this.fade.style.pointerEvents = 'none'; this.sleeping = false; c.P.frozen = false; }, 900);
-    }, realMode ? SLEEP_S(h) * 1000 : 750);
+    }, 1300);
   }
   openFridge() {
     const p = this.fridgeP, H = this.H, g = this.game; if (!H) return; const b = p.body; b.innerHTML = '';
